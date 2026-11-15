@@ -439,7 +439,7 @@
       if (my !== loadSeq) return;
       const cached = readCache();
       if (cached) { offline = cached.at; render(...cached.args); return; }
-      showErr(navigator.onLine === false || e instanceof TypeError
+      showErr(navigator.onLine === false || e?.name === "TypeError"
         ? "Keine Verbindung – und für diesen Ort ist noch kein Stand gespeichert. Bitte später erneut versuchen."
         : "Wetterdaten konnten nicht geladen werden (" + e.message + ").");
     }
