@@ -465,6 +465,7 @@
       lastLoad = Date.now(); offline = null;
       render(data, members, spread, m);
       saveCache([data, members, spread, m]);
+      if (skillFor !== placeKey(place)) loadSkill();
     } catch (e) {
       if (my !== loadSeq) return;
       const cached = readCache();
@@ -615,8 +616,10 @@
       html += row((mode === "consensus" ? "▸ " : "") + "Konsens", cons, "mean" + (mode === "consensus" ? " sel" : ""));
       html += `</table><div class="legend">Temperatur min/max, Regen in mm. ▸ = gerade angezeigt. Konsens = Mittelwert der Modelle.</div></div>`;
     }
+    html += `<div id="skillBox"></div>`;
 
     document.getElementById("out").innerHTML = html;
+    renderSkill();
     const showChart = () => { const c = document.getElementById("chartCard"); c && c.scrollIntoView && c.scrollIntoView({ behavior: "smooth", block: "start" }); };
     document.querySelectorAll(".day[data-day]").forEach(r => r.onclick = () => {
       selDay = r.dataset.day === dl.time[0] ? null : r.dataset.day; render(...lastRender); showChart();
@@ -633,6 +636,65 @@
     document.getElementById("star").onclick = toggleFav;
     document.getElementById("home").onclick = setHome;
     renderStar();
+  }
+
+  // ---------- Trefferquote der letzten 7 Tage ----------
+  // Vergleicht je Modell die Prognose vom Vortag (Previous Runs API) mit dem tatsächlichen Verlauf.
+  // Referenz = Mittel der aktuellen Modell-Analysen (keine Stationsmessung). Ergebnis wird pro Ort und Tag gespeichert.
+  const SKILL_KEY = "wetter.skill";
+  let skill = null, skillFor = null, skillSeq = 0;
+  async function loadSkill(){
+    const key = placeKey(place), today = new Date().toDateString(), my = ++skillSeq;
+    const c = store.get(SKILL_KEY, null);
+    skillFor = key;
+    if (c && c.key === key && c.day === today) { skill = c.data; renderSkill(); return; }
+    skill = null; renderSkill();
+    try {
+      const res = await Promise.allSettled(ENSEMBLE.map(async ([id]) => {
+        const params = new URLSearchParams({ latitude: place.latitude, longitude: place.longitude, timezone: "auto", past_days: 7, forecast_days: 1,
+          hourly: "temperature_2m,temperature_2m_previous_day1,precipitation,precipitation_previous_day1", models: id });
+        const d = await (await fetch("https://previous-runs-api.open-meteo.com/v1/forecast?" + params)).json();
+        if (d.error || !d.hourly?.time) throw new Error("keine Daten");
+        return d.hourly;
+      }));
+      if (my !== skillSeq) return;
+      const ms = res.map((r, i) => r.status === "fulfilled" ? { name: ENSEMBLE[i][1], h: r.value } : null).filter(Boolean);
+      const data = computeSkill(ms);
+      if (!data) { skillFor = null; return; }
+      skill = data; store.set(SKILL_KEY, { key, day: today, data }); renderSkill();
+    } catch { if (my === skillSeq) skillFor = null; }
+  }
+  function computeSkill(ms){
+    if (ms.length < 2) return null;
+    const time = ms[0].h.time, lastDay = time[time.length - 1].slice(0, 10);
+    const past = time.map((t, i) => t.slice(0, 10) < lastDay ? i : -1).filter(i => i >= 0); // nur abgeschlossene Tage
+    const days = [...new Set(past.map(i => time[i].slice(0, 10)))];
+    const refT = past.map(i => mean(ms.map(m => m.h.temperature_2m?.[i])));
+    const daySum = (arr, day) => { const v = past.filter(i => time[i].slice(0, 10) === day).map(i => arr?.[i]); return vals(v).length >= 20 ? vals(v).reduce((a, x) => a + x, 0) : null; };
+    const refP = days.map(day => mean(ms.map(m => daySum(m.h.precipitation, day))));
+    const score = (fT, fP) => {
+      const err = vals(past.map((i, k) => ok(fT(i)) && ok(refT[k]) ? Math.abs(fT(i) - refT[k]) : null));
+      let hits = 0, n = 0;
+      days.forEach((day, k) => { const f = fP(day); if (ok(f) && ok(refP[k])) { n++; if ((f >= 1) === (refP[k] >= 1)) hits++; } });
+      return { mae: err.length >= 48 ? mean(err) : null, hits, n };
+    };
+    const rows = ms.map(m => ({ name: m.name, ...score(i => m.h.temperature_2m_previous_day1?.[i], day => daySum(m.h.precipitation_previous_day1, day)) }));
+    if (!rows.some(r => ok(r.mae))) return null;
+    const cons = score(i => mean(ms.map(m => m.h.temperature_2m_previous_day1?.[i])), day => mean(ms.map(m => daySum(m.h.precipitation_previous_day1, day))));
+    return { rows, cons, days: days.length };
+  }
+  function renderSkill(){
+    const el = document.getElementById("skillBox"); if (!el) return;
+    if (!skill || skillFor !== placeKey(place)) { el.innerHTML = ""; return; }
+    const best = minOf(skill.rows.map(r => r.mae));
+    const row = (name, r, cls) => `<tr class="${cls}"><td>${esc(name)}</td>
+      <td${ok(r.mae) && r.mae === best ? ' style="color:#8be0b4"' : ""}>${ok(r.mae) ? "±" + r.mae.toFixed(1).replace(".", ",") + "°" : "–"}</td>
+      <td>${r.n ? r.hits + " von " + r.n : "–"}</td></tr>`;
+    el.innerHTML = `<div class="card"><h2>Trefferquote <span style="text-transform:none;letter-spacing:0;font-weight:400">· letzte ${skill.days} Tage</span></h2>
+      <table class="cmp"><tr><th>Modell</th><th>Ø Temp.-Fehler</th><th>Regentage richtig</th></tr>
+      ${skill.rows.map(r => row(r.name, r, "")).join("")}${row("Konsens", skill.cons, "mean")}</table>
+      <div class="legend">Prognose vom Vortag gegen den tatsächlichen Verlauf an diesem Ort. Grün = kleinster Fehler. „Regentag“ = ab 1 mm.
+        Als Vergleich dient das Mittel der Modell-Analysen, keine Stationsmessung – und wenige Tage sind nur ein Hinweis, kein Urteil.</div></div>`;
   }
 
   // Sonnenstunden (Sekunden → Stunden) und UV-Index; UV erst ab 3 (mäßig), darunter ist er bedeutungslos
