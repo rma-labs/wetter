@@ -389,10 +389,14 @@
   // Spread (disagreement) between models – used for the band, ± values and the confidence rating.
   function computeSpread(list){
     const base = list[0], hl = base.hourly.time.length, dlen = base.daily.time.length;
-    const sp = { hourlyMin: [], hourlyMax: [], dailyMax: [], dailyMin: [], dailyPrec: [], conf: [] };
+    const sp = { hourlyMin: [], hourlyMax: [], gustMax: [], precMax: [], dailyMax: [], dailyMin: [], dailyPrec: [], conf: [],
+      curGustMax: maxOf(list.map(d => d.current?.wind_gusts_10m)) };
     for (let i = 0; i < hl; i++) {
       const t = list.map(d => d.hourly.temperature_2m?.[i]);
       sp.hourlyMin.push(minOf(t)); sp.hourlyMax.push(maxOf(t));
+      // höchster Einzelwert je Stunde – der Konsens (Mittel) glättet Spitzen
+      sp.gustMax.push(maxOf(list.map(d => d.hourly.wind_gusts_10m?.[i])));
+      sp.precMax.push(maxOf(list.map(d => d.hourly.precipitation?.[i])));
     }
     for (let i = 0; i < dlen; i++) {
       const mx = list.map(d => d.daily.temperature_2m_max?.[i]);
@@ -407,7 +411,8 @@
   }
 
   // 0 = eher sicher, 1 = mittel, 2 = unsicher. Worst of temperature and precipitation disagreement.
-  function rateConfidence(tSpread, pLo, pHi){
+  function rateConfidence(tSpread, pLo, pHi){ return Math.max(...rateParts(tSpread, pLo, pHi)); }
+  function rateParts(tSpread, pLo, pHi){
     const t = tSpread <= 2 ? 0 : tSpread <= 4 ? 1 : 2;
     let p = 0;
     if (ok(pLo) && ok(pHi)) {
@@ -415,8 +420,18 @@
       if ((pHi >= 2 && pLo < 0.2) || diff >= 6) p = 2;        // dry vs. clearly wet, or big amount gap
       else if ((pHi >= 0.5 && pLo < 0.1) || diff >= 2) p = 1; // some say a bit of rain, some none
     }
-    return Math.max(t, p);
+    return [t, p];
   }
+  // Begründung der Ampel für Tag i in Worten
+  function confReason(sp, i){
+    const tS = Math.max(sp.dailyMax[i] || 0, sp.dailyMin[i] || 0), [pLo, pHi] = sp.dailyPrec[i] || [];
+    const [t, p] = rateParts(tS, pLo, pHi), parts = [];
+    if (t) parts.push(`Temperatur: Modelle bis ${fmt(tS)}° auseinander`);
+    if (p) parts.push(`Regen: ${fmt1(pLo)} bis ${fmt1(pHi)} mm je nach Modell`);
+    return parts.length ? parts.join(" · ") : "Modelle bei Temperatur und Regen weitgehend einig";
+  }
+  // „bis X“ nur zeigen, wenn ein Modell deutlich über dem Mittel liegt
+  const gustHi = (v, mx) => ok(v) && ok(mx) && mx - v >= 15 && mx >= 40 ? mx : null;
   const CONF = [["b-good", "Prognose eher sicher"], ["b-mid", "Prognose mittel sicher"], ["b-bad", "Prognose unsicher"]];
   const CONF_DOT = ["#8be0b4", "#f2d38a", "#f2a0a0"];
 
@@ -479,6 +494,7 @@
   // ---------- render ----------
   let step = store.get("wetter.step", 1) === 3 ? 3 : 1, lastRender = null;
   let range = store.get("wetter.range", 24) === 48 ? 48 : 24; // Zeitraum der Stundengrafik (ohne gewählten Tag)
+  let showWhy = false; // Begründung der Ampel eingeblendet?
   let selDay = null; // gewählter Tag (JJJJ-MM-TT) für die Stundengrafik; null = nächste 24 h
   function render(d, members, spread, mode){
     lastRender = [d, members, spread, mode];
@@ -502,10 +518,12 @@
     const snowAtPlace = ok(slWet) && ok(elev) && slWet <= elev + 100;
 
     // consensus badge
+    const cons = mode === "consensus" && d.spread ? d.spread : null; // Spitzenwerte nur im Konsens-Modus
+    const curHi = cons ? gustHi(c.wind_gusts_10m, cons.curGustMax) : null;
     let badge = "";
     if (spread) {
       const cls = CONF[spread.conf[0]];
-      badge = `<span class="badge ${cls[0]}">${cls[1]}</span>`;
+      badge = `<button id="confBtn" type="button" class="badge ${cls[0]}" style="border:0;cursor:pointer;font-family:inherit">${cls[1]} ⓘ</button>`;
     }
 
     let html = "";
@@ -528,13 +546,14 @@
             <div class="sub">Gefühlt ${fmt(c.apparent_temperature)}°<br>
               24 h: ↑ ${fmt(maxOf(idx.map(i => h.temperature_2m[i])))}° ↓ ${fmt(minOf(idx.map(i => h.temperature_2m[i])))}°</div>
           </div>
-          ${badge ? `<div style="margin-top:8px">${badge} <span class="sub">heute, ${members.length} Modelle</span></div>` : ""}
+          ${badge ? `<div style="margin-top:8px">${badge} <span class="sub">heute, ${members.length} Modelle</span>
+            <div id="confWhy" class="sub" style="display:${showWhy ? "block" : "none"};margin-top:4px">${esc(confReason(spread, 0))}</div></div>` : ""}
         </div>
         <div class="icon">${wIcon(c.weather_code, c.is_day)}</div>
       </div>
       <div class="grid">
         <div><b>${fmt(c.wind_speed_10m)} km/h</b><span>Wind ${dirName(c.wind_direction_10m)}</span></div>
-        <div><b>${fmt(c.wind_gusts_10m)} km/h</b><span>Böen</span></div>
+        <div><b>${fmt(c.wind_gusts_10m)} km/h</b><span>Böen${curHi ? ` · <span style="color:var(--accent)">bis ${fmt(curHi)}</span>` : ""}</span></div>
         <div><b>${fmt(c.relative_humidity_2m)} %</b><span>Luftfeuchte</span></div>
         <div><b>${fmt1(c.precipitation ?? 0)} mm</b><span>Niederschlag jetzt</span></div>
         <div><b>${fmt(c.pressure_msl)} hPa</b><span>Luftdruck</span></div>
@@ -558,6 +577,7 @@
       date: h.time[i].slice(0, 10), t: h.time[i].slice(11, 13), temp: h.temperature_2m[i], pp: h.precipitation_probability?.[i],
       mm: h.precipitation?.[i], code: h.weather_code[i], day: h.is_day?.[i] ?? 1,
       ws: h.wind_speed_10m?.[i], wg: h.wind_gusts_10m?.[i], wd: h.wind_direction_10m?.[i],
+      wgMax: cons?.gustMax?.[i], mmMax: cons?.precMax?.[i],
       lo: d.spread?.hourlyMin[i], hi: d.spread?.hourlyMax[i]
     }));
     // 3-Stunden-Ansicht: Temperatur/Richtung zum Startzeitpunkt, Regen als Summe, Böen/Wahrscheinlichkeit als Maximum
@@ -566,16 +586,18 @@
       for (let k = 0; k + 3 <= Math.min(selDay ? 24 : range, hrs.length); k += 3) {
         const g = hrs.slice(k, k + 3);
         bins.push({ ...g[0], pp: maxOf(g.map(x => x.pp)), mm: g.reduce((a, x) => a + (x.mm || 0), 0),
-          code: maxOf(g.map(x => x.code)) ?? g[0].code, ws: mean(g.map(x => x.ws)), wg: maxOf(g.map(x => x.wg)) });
+          code: maxOf(g.map(x => x.code)) ?? g[0].code, ws: mean(g.map(x => x.ws)), wg: maxOf(g.map(x => x.wg)),
+          wgMax: maxOf(g.map(x => x.wgMax)), mmMax: cons ? g.reduce((a, x) => a + (x.mmMax || 0), 0) : null });
       }
       if (bins.length) hrs = bins;
     }
     const seg = n => `<button type="button" data-step="${n}" class="seg${step === n ? " on" : ""}">${n} h</button>`;
     const rseg = n => `<button type="button" data-range="${n}" class="seg${range === n ? " on" : ""}">${n} h</button>`;
     html += `<div class="card"><h2 id="chartCard" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>${chartTitle}</span></h2>
+      ${selDay && spread ? `<div class="sub" style="margin:-4px 0 10px"><span style="color:${CONF_DOT[spread.conf[dl.time.indexOf(selDay)]]}">●</span> ${CONF[spread.conf[dl.time.indexOf(selDay)]][1]} – ${esc(confReason(spread, dl.time.indexOf(selDay)))}</div>` : ""}
       <div class="ctrl">${selDay ? "" : `<span>Zeitraum <span class="segs">${rseg(24)}${rseg(48)}</span></span>`}<span>Schritt <span class="segs">${seg(1)}${seg(3)}</span></span></div>
       <div class="hourly">${hourlySVG(hrs, hrs.length <= 9, !selDay)}</div>
-      <div class="legend">Balken = Niederschlag (${step === 3 ? "mm/3 h" : "mm/h"}), Prozent = Wahrscheinlichkeit · Pfeil = Windrichtung, Zahl = Wind km/h, B = Böen${d.spread ? " · helles Band = Temperatur-Spanne der Modelle" : ""}</div></div>`;
+      <div class="legend">Balken = Niederschlag (${step === 3 ? "mm/3 h" : "mm/h"}), Prozent = Wahrscheinlichkeit · Pfeil = Windrichtung, Zahl = Wind km/h, B = Böen${d.spread ? " · helles Band = Temperatur-Spanne der Modelle" : ""}${cons ? " · gestrichelt bzw. „B 45–70“ = höchster Einzelwert eines Modells" : ""}</div></div>`;
 
     // 7 days
     const gMin = minOf(dl.temperature_2m_min), gMax = maxOf(dl.temperature_2m_max), span = Math.max(1, gMax - gMin);
@@ -632,6 +654,8 @@
     document.querySelectorAll(".seg[data-step]").forEach(b => b.onclick = () => {
       step = +b.dataset.step; store.set("wetter.step", step); render(...lastRender);
     });
+    const cb = document.getElementById("confBtn");
+    if (cb) cb.onclick = () => { showWhy = !showWhy; document.getElementById("confWhy").style.display = showWhy ? "block" : "none"; };
     const rb = document.getElementById("retryBtn"); if (rb) rb.onclick = () => load();
     document.getElementById("star").onclick = toggleFav;
     document.getElementById("home").onclick = setHome;
@@ -686,7 +710,7 @@
   function renderSkill(){
     const el = document.getElementById("skillBox"); if (!el) return;
     if (!skill || skillFor !== placeKey(place)) { el.innerHTML = ""; return; }
-    const best = minOf(skill.rows.map(r => r.mae));
+    const best = minOf([...skill.rows.map(r => r.mae), skill.cons.mae]);
     const row = (name, r, cls) => `<tr class="${cls}"><td>${esc(name)}</td>
       <td${ok(r.mae) && r.mae === best ? ' style="color:#8be0b4"' : ""}>${ok(r.mae) ? "±" + r.mae.toFixed(1).replace(".", ",") + "°" : "–"}</td>
       <td>${r.n ? r.hits + " von " + r.n : "–"}</td></tr>`;
@@ -716,7 +740,7 @@
     const y = v => tBot - (v - mn) / rng * (tBot - tTop);
     const cx = i => i * colW + colW / 2;
     // precip scale: at least 1 mm full height, sqrt so light rain stays visible
-    const maxMm = Math.max(1, maxOf(hrs.map(x => x.mm || 0)));
+    const maxMm = Math.max(1, maxOf(hrs.flatMap(x => [x.mm || 0, x.mmMax || 0])));
     let head = `<svg ${fit ? `style="width:100%;max-width:${Math.round(W * 1.4)}px;height:auto;margin:auto"` : `width="${W}" height="${H}"`} viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif">`;
     // time labels on top, day boundary (0 Uhr) as a subtle vertical line
     hrs.forEach((x, i) => {
@@ -734,16 +758,19 @@
     }
     hrs.forEach((x, i) => {
       const mm = x.mm || 0;
+      // höchster Einzelwert als gestrichelter Rahmen, wenn deutlich über dem Mittel
+      const hi = ok(x.mmMax) && x.mmMax - mm >= 1 && x.mmMax >= 2 * mm ? Math.sqrt(x.mmMax / maxMm) * barMax : 0;
+      if (hi) s += `<rect x="${cx(i) - 9}" y="${barBase - hi}" width="18" height="${hi}" rx="3" fill="none" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3 2" opacity=".8"><title>bis ${x.mmMax.toFixed(1)} mm</title></rect>`;
       if (mm >= 0.05) {
         const hBar = Math.max(3, Math.sqrt(mm / maxMm) * barMax);
         s += `<rect x="${cx(i) - 9}" y="${barBase - hBar}" width="18" height="${hBar}" rx="3" fill="#4fc3f7" opacity=".8"/>`;
-        if (mm >= 0.2) s += `<text x="${cx(i)}" y="${barBase - hBar - 3}" text-anchor="middle" font-size="9" fill="#4fc3f7">${mm.toFixed(1)}</text>`;
+        if (mm >= 0.2) s += `<text x="${cx(i)}" y="${barBase - Math.max(hBar, hi) - 3}" text-anchor="middle" font-size="9" fill="#4fc3f7">${mm.toFixed(1)}</text>`;
       }
       if (ok(x.pp) && x.pp > 0) s += `<text x="${cx(i)}" y="${barBase + 14}" text-anchor="middle" font-size="10" fill="#4fc3f7">${Math.round(x.pp)}%</text>`;
       // wind: arrow points where the wind blows TO (direction is where it comes FROM)
       if (ok(x.wd)) s += `<path d="M0,-9 L5.5,5 L0,2 L-5.5,5 Z" fill="${windCol(x.ws)}" transform="translate(${cx(i)},${windY}) rotate(${Math.round((x.wd + 180) % 360)})"><title>aus ${dirName(x.wd)}</title></path>`;
       if (ok(x.ws)) s += `<text x="${cx(i)}" y="${windTxt}" text-anchor="middle" font-size="12" font-weight="600" fill="${windCol(x.ws)}">${fmt(x.ws)}</text>`;
-      if (ok(x.wg)) s += `<text x="${cx(i)}" y="${gustTxt}" text-anchor="middle" font-size="9.5" fill="${windCol(x.wg)}">B ${fmt(x.wg)}</text>`;
+      if (ok(x.wg)) s += `<text x="${cx(i)}" y="${gustTxt}" text-anchor="middle" font-size="9.5" fill="${windCol(gustHi(x.wg, x.wgMax) ?? x.wg)}">B ${fmt(x.wg)}${gustHi(x.wg, x.wgMax) ? "–" + fmt(x.wgMax) : ""}</text>`;
       s += `<text x="${cx(i)}" y="22" text-anchor="middle" font-size="17">${wIcon(x.code, x.day)}</text>`;
     });
     const pts = hrs.map((x, i) => `${cx(i)},${y(x.temp).toFixed(1)}`).join(" ");
