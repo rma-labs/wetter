@@ -65,6 +65,7 @@
   .temps{display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:4px}
   .temps .lo{color:var(--muted)}
   .rainp{color:var(--rain);font-size:.8rem;text-align:right}
+  .suninfo{color:var(--muted);font-size:.75rem;margin-top:3px}
   .snowl{color:var(--snow);font-size:.75rem;margin-top:3px}
   table.cmp{width:100%;border-collapse:collapse;font-size:.85rem}
   table.cmp th,table.cmp td{padding:7px 4px;border-bottom:1px solid var(--line);text-align:right}
@@ -302,7 +303,7 @@
   // ---------- data ----------
   const CUR = "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day,precipitation,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl";
   const HOURLY = "temperature_2m,precipitation_probability,precipitation,snowfall,weather_code,is_day,freezing_level_height,wind_speed_10m,wind_gusts_10m,wind_direction_10m";
-  const DAILY = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum,precipitation_probability_max,sunrise,sunset";
+  const DAILY = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum,precipitation_probability_max,sunrise,sunset,sunshine_duration,uv_index_max";
 
   async function fetchModel(model){
     const params = new URLSearchParams({
@@ -559,6 +560,7 @@
         <div style="font-size:1.4rem" title="${esc(wText(dl.weather_code[i]))}">${wIcon(dl.weather_code[i])}</div>
         <div><div class="temps"><span class="lo">${fmt(lo)}°</span>${ok(unc) && unc >= 3 ? `<span class="sub">±${fmt(unc / 2)}°</span>` : ""}<span>${fmt(hi)}°</span></div>
           <div class="bar"><i style="left:${(lo - gMin) / span * 100}%;right:${(gMax - hi) / span * 100}%"></i></div>
+          ${sunLine(dl.sunshine_duration?.[i], dl.uv_index_max?.[i])}
           ${ok(sl) && mm >= 0.5 ? `<div class="snowl">❄ Schneefallgrenze ~${meters(sl)}${sn >= 0.5 ? " · " + fmt1(sn) + " cm Neuschnee" : ""}</div>` : ""}</div>
         <div class="rainp">${ok(pp) ? fmt(pp) + " %" : ""}<br>${mm >= 0.1 ? fmt1(mm) + " mm" : ""}${pr && ok(pr[1]) && pr[1] - pr[0] >= 2 ? `<br><span class="sub">${fmt1(pr[0])}–${fmt1(pr[1])}</span>` : ""}</div>
       </div>`;
@@ -594,6 +596,15 @@
     document.getElementById("star").onclick = toggleFav;
     document.getElementById("home").onclick = setHome;
     renderStar();
+  }
+
+  // Sonnenstunden (Sekunden → Stunden) und UV-Index; UV erst ab 3 (mäßig), darunter ist er bedeutungslos
+  function sunLine(sec, uv){
+    const hasSun = ok(sec), hasUv = ok(uv) && uv >= 2.5;
+    if (!hasSun && !hasUv) return "";
+    const uvCol = uv >= 8 ? "#f2a0a0" : uv >= 6 ? "#ffb74d" : "#f2d38a";
+    return `<div class="suninfo">${hasSun ? `☀ ${(sec / 3600).toFixed(1).replace(".", ",").replace(",0", "")} h Sonne` : ""}${
+      hasUv ? `${hasSun ? " · " : ""}<span style="color:${uvCol}">UV ${Math.round(uv)}</span>` : ""}</div>`;
   }
 
   function hourlySVG(hrs, fit, live = true){
