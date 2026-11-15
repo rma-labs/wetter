@@ -79,6 +79,9 @@
        font-family:ui-monospace,monospace;font-size:.75rem;padding:8px}
   .btn{background:var(--accent);color:#1a1a1a;border:0;border-radius:10px;padding:9px 14px;font-weight:600;font-size:.9rem;cursor:pointer;margin:6px 6px 6px 0}
   .btn.sec{background:var(--card2);color:var(--text)}
+  .segs{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg{background:none;border:0;color:var(--muted);font-size:.75rem;padding:4px 10px;cursor:pointer;letter-spacing:0;text-transform:none}
+  .seg.on{background:var(--card2);color:var(--accent);font-weight:600}
   .linkbtn{background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;font-size:inherit;padding:0}
 </style>
 </head>
@@ -420,7 +423,9 @@
   }
 
   // ---------- render ----------
+  let step = store.get("wetter.step", 1) === 3 ? 3 : 1, lastRender = null;
   function render(d, members, spread, mode){
+    lastRender = [d, members, spread, mode];
     const c = d.current, h = d.hourly, dl = d.daily;
     const updated = (c.time || "").slice(11, 16);
     const sunrise = (dl.sunrise?.[0] || "").slice(11, 16), sunset = (dl.sunset?.[0] || "").slice(11, 16);
@@ -476,14 +481,25 @@
       ${snowAtPlace ? `<div class="snowl" style="margin-top:10px">❄ Schneefallgrenze sinkt in den nächsten 24 h bis ca. ${meters(slWet)} – Schnee bzw. Schneeregen am Ort möglich.</div>` : ""}
     </div>`;
 
-    const hrs = idx.map(i => ({
-      t: h.time[i].slice(11, 13), temp: h.temperature_2m[i], pp: h.precipitation_probability?.[i],
+    let hrs = idx.map(i => ({
+      date: h.time[i].slice(0, 10), t: h.time[i].slice(11, 13), temp: h.temperature_2m[i], pp: h.precipitation_probability?.[i],
       mm: h.precipitation?.[i], code: h.weather_code[i], day: h.is_day?.[i] ?? 1,
       ws: h.wind_speed_10m?.[i], wg: h.wind_gusts_10m?.[i], wd: h.wind_direction_10m?.[i],
       lo: d.spread?.hourlyMin[i], hi: d.spread?.hourlyMax[i]
     }));
-    html += `<div class="card"><h2>Nächste 24 Stunden</h2><div class="hourly">${hourlySVG(hrs)}</div>
-      <div class="legend">Balken = Niederschlag (mm/h), Prozent = Wahrscheinlichkeit · Pfeil = Windrichtung, Zahl = Wind km/h, B = Böen${d.spread ? " · helles Band = Temperatur-Spanne der Modelle" : ""}</div></div>`;
+    // 3-Stunden-Ansicht: Temperatur/Richtung zum Startzeitpunkt, Regen als Summe, Böen/Wahrscheinlichkeit als Maximum
+    if (step === 3) {
+      const bins = [];
+      for (let k = 0; k + 3 <= Math.min(24, hrs.length); k += 3) {
+        const g = hrs.slice(k, k + 3);
+        bins.push({ ...g[0], pp: maxOf(g.map(x => x.pp)), mm: g.reduce((a, x) => a + (x.mm || 0), 0),
+          code: maxOf(g.map(x => x.code)) ?? g[0].code, ws: mean(g.map(x => x.ws)), wg: maxOf(g.map(x => x.wg)) });
+      }
+      if (bins.length) hrs = bins;
+    }
+    const seg = n => `<button type="button" data-step="${n}" class="seg${step === n ? " on" : ""}">${n} h</button>`;
+    html += `<div class="card"><h2 style="display:flex;justify-content:space-between;align-items:center">Nächste 24 Stunden <span class="segs">${seg(1)}${seg(3)}</span></h2><div class="hourly">${hourlySVG(hrs, step === 3)}</div>
+      <div class="legend">Balken = Niederschlag (${step === 3 ? "mm/3 h" : "mm/h"}), Prozent = Wahrscheinlichkeit · Pfeil = Windrichtung, Zahl = Wind km/h, B = Böen${d.spread ? " · helles Band = Temperatur-Spanne der Modelle" : ""}</div></div>`;
 
     // 7 days
     const gMin = minOf(dl.temperature_2m_min), gMax = maxOf(dl.temperature_2m_max), span = Math.max(1, gMax - gMin);
@@ -525,12 +541,15 @@
     }
 
     document.getElementById("out").innerHTML = html;
+    document.querySelectorAll(".seg").forEach(b => b.onclick = () => {
+      step = +b.dataset.step; store.set("wetter.step", step); render(...lastRender);
+    });
     document.getElementById("star").onclick = toggleFav;
     document.getElementById("home").onclick = setHome;
     renderStar();
   }
 
-  function hourlySVG(hrs){
+  function hourlySVG(hrs, fit){
     const colW = 46, W = hrs.length * colW, TOP = 20, H = 248 + TOP;
     const windY = 204, windTxt = 230, gustTxt = 244;
     const windCol = v => !ok(v) ? "#9db0c9" : v >= 60 ? "#f2a0a0" : v >= 40 ? "#ffb74d" : v >= 20 ? "#eef3fa" : "#9db0c9";
@@ -541,10 +560,10 @@
     const cx = i => i * colW + colW / 2;
     // precip scale: at least 1 mm full height, sqrt so light rain stays visible
     const maxMm = Math.max(1, maxOf(hrs.map(x => x.mm || 0)));
-    let head = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif">`;
+    let head = `<svg ${fit ? `style="width:100%;max-width:${Math.round(W * 1.4)}px;height:auto;margin:auto"` : `width="${W}" height="${H}"`} viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif">`;
     // time labels on top, day boundary (0 Uhr) as a subtle vertical line
     hrs.forEach((x, i) => {
-      if (i > 0 && x.t === "00") head += `<line x1="${i * colW}" y1="2" x2="${i * colW}" y2="${H - 2}" stroke="#9db0c9" stroke-opacity=".35" stroke-width="1"/>`;
+      if (i > 0 && x.date !== hrs[i - 1].date) head += `<line x1="${i * colW}" y1="2" x2="${i * colW}" y2="${H - 2}" stroke="#9db0c9" stroke-opacity=".35" stroke-width="1"/>`;
       head += `<text x="${cx(i)}" y="13" text-anchor="middle" font-size="11" font-weight="${i === 0 ? 700 : 400}" fill="${i === 0 ? "#eef3fa" : "#9db0c9"}">${i === 0 ? "Jetzt" : x.t}</text>`;
     });
     let s = "";
