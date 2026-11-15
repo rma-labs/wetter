@@ -106,29 +106,26 @@
   </span>
 </div>
 
+<div id="importBanner"></div>
 <div id="out"><div class="msg">Lade …</div></div>
 
 <footer><span class="sub">🏠 = Startort festlegen (auch für „Zurücksetzen“)</span><br>Daten: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0)
   · <button id="resetBtn" class="linkbtn" type="button">Zurücksetzen</button>
-  · <button id="exportBtn" class="linkbtn" type="button">Für Freunde exportieren</button>
-  <div id="exportPanel" class="panel">
-    <div style="margin-bottom:8px">Erzeugt eine Kopie dieser App, in der dein <b>Startort</b> und deine <b>Favoriten</b> fix eingebaut sind.
-      „Mein Standort“ (GPS) wird aus Datenschutzgründen nicht mitexportiert.</div>
-    <button id="exShare" class="btn" type="button">📤 Datei teilen</button>
-    <button id="exDownload" class="btn sec" type="button">💾 Datei speichern</button>
-    <div class="sub" style="margin:10px 0 4px">Oder diese Zeile im Code ersetzen (die Zeile, die mit <code>const PRESET</code> beginnt):</div>
-    <textarea id="exText" readonly></textarea>
-    <button id="exCopy" class="btn sec" type="button">📋 Kopieren</button>
-    <span id="exMsg" class="sub"></span>
+  · <button id="shareBtn" class="linkbtn" type="button">Favoriten per Link teilen</button>
+  <div id="sharePanel" class="panel">
+    <div style="margin-bottom:8px">Link mit deinem <b>Startort</b> und deinen <b>Favoriten</b>. Wer ihn öffnet, wird gefragt, ob er sie übernehmen will.
+      „Mein Standort“ (GPS) ist aus Datenschutzgründen nicht enthalten.</div>
+    <textarea id="shareText" readonly style="height:70px"></textarea>
+    <button id="shareCopy" class="btn sec" type="button">📋 Link kopieren</button>
+    <span id="shareMsg" class="sub"></span>
   </div></footer>
 
 <script>
 (() => {
-  // ===== VOREINSTELLUNG – Startort und Favoriten für neue Nutzer (per „Für Freunde exportieren“ erzeugbar) =====
+  // ===== VOREINSTELLUNG – Startort und Favoriten für Nutzer, die ohne Link kommen =====
   /*PRESET*/ const PRESET = {"home":{"name":"Wien","admin1":"Wien","latitude":48.20849,"longitude":16.37208},"favs":[{"name":"Wien","admin1":"Wien","latitude":48.20849,"longitude":16.37208}]}; /*END*/
   // =================================================================================================================
-  // Unveränderte Kopie der Seite (vor dem Rendern) – Grundlage für den Export
-  const SOURCE = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+  const APP_URL = "https://rma-labs.github.io/wetter/";
   const DEFAULT = PRESET.home;
   const ENSEMBLE = [
     ["icon_seamless", "ICON"], ["ecmwf_ifs025", "ECMWF"], ["gfs_seamless", "GFS"], ["meteofrance_seamless", "Météo-Fr."]
@@ -582,50 +579,65 @@
     return head + `<g transform="translate(0,${TOP})">` + s + `</g></svg>`;
   }
 
-  // ---------- export for friends ----------
-  const clean = p => ({ name: p.name, admin1: p.admin1 || "", ...(p.cc && p.cc !== "AT" ? { cc: p.cc } : {}), latitude: +(+p.latitude).toFixed(5), longitude: +(+p.longitude).toFixed(5) });
+  // ---------- Favoriten per Link teilen ----------
+  // Format: #f=<base64url von JSON [homeIndex, [[name, region, lat, lon, land?], …]]>
   const isGps = p => p.name === "Mein Standort";
-  function presetLine(){
-    const h = isGps(home) ? (favs.find(f => !isGps(f)) || DEFAULT) : home;
-    const preset = { home: clean(h), favs: favs.filter(f => !isGps(f)).map(clean) };
-    if (!preset.favs.length) preset.favs = [preset.home];
-    const json = JSON.stringify(preset).replace(/</g, "\\u003c");
-    return "/*PRESET*/ const PRESET = " + json + "; /*END*/";
+  const b64e = str => btoa(String.fromCharCode(...new TextEncoder().encode(str))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const b64d = str => new TextDecoder().decode(Uint8Array.from(atob(str.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0)));
+  function shareLink(){
+    const list = favs.filter(f => !isGps(f));
+    if (!isGps(home) && !list.some(f => sameP(f, home))) list.unshift(home);
+    if (!list.length) list.push(DEFAULT);
+    const hi = Math.max(0, list.findIndex(f => sameP(f, home)));
+    const data = [hi, list.map(f => [f.name, f.admin1 || "", +(+f.latitude).toFixed(4), +(+f.longitude).toFixed(4), ...(f.cc && f.cc !== "AT" ? [f.cc] : [])])];
+    return APP_URL + "#f=" + b64e(JSON.stringify(data));
   }
-  function exportHtml(){
-    const line = presetLine();
-    return SOURCE.replace(/\/\*PRESET\*\/[\s\S]*?\/\*END\*\//, () => line);
+  function parseLink(){
+    const m = location.hash.match(/^#f=([A-Za-z0-9_-]+)$/); if (!m) return null;
+    try {
+      const [hi, arr] = JSON.parse(b64d(m[1]));
+      const list = arr.filter(a => typeof a[0] === "string" && ok(a[2]) && ok(a[3]) && Math.abs(a[2]) <= 90 && Math.abs(a[3]) <= 180)
+        .map(a => ({ name: a[0].slice(0, 80), admin1: String(a[1] || "").slice(0, 80), cc: /^[A-Z]{2}$/.test(a[4] || "") ? a[4] : "", latitude: a[2], longitude: a[3] }));
+      if (!list.length) return null;
+      return { home: list[Math.min(Math.max(0, hi | 0), list.length - 1)], favs: list };
+    } catch { return null; }
   }
-  const exMsg = t => { document.getElementById("exMsg").textContent = t; };
-  document.getElementById("exportBtn").onclick = () => {
-    const pnl = document.getElementById("exportPanel");
-    const show = pnl.style.display !== "block";
-    pnl.style.display = show ? "block" : "none";
-    if (show) { document.getElementById("exText").value = presetLine(); exMsg(""); pnl.scrollIntoView && pnl.scrollIntoView({ behavior: "smooth" }); }
+  const clearHash = () => { try { history.replaceState(null, "", location.pathname + location.search); } catch { location.hash = ""; } };
+  function checkImport(){
+    const imp = parseLink(), el = document.getElementById("importBanner");
+    if (!imp) { el.innerHTML = ""; return; }
+    el.innerHTML = `<div class="card" style="border:1px solid var(--accent)">
+      <div style="font-weight:600;margin-bottom:4px">Favoriten übernehmen?</div>
+      <div class="sub">Startort: ${esc(imp.home.name)}${flag(imp.home.cc)}<br>Favoriten: ${imp.favs.map(f => esc(f.name)).join(", ")}</div>
+      <button id="impYes" class="btn" type="button">Ja, übernehmen</button><button id="impNo" class="btn sec" type="button">Nein</button></div>`;
+    document.getElementById("impYes").onclick = () => {
+      imp.favs.forEach(f => { if (!favs.some(x => sameP(x, f))) favs.push(f); });
+      store.set("wetter.favs", favs);
+      home = imp.home; store.set("wetter.home", home);
+      el.innerHTML = ""; clearHash(); setPlace(home);
+    };
+    document.getElementById("impNo").onclick = () => { el.innerHTML = ""; clearHash(); };
+  }
+  window.addEventListener("hashchange", checkImport);
+
+  const shareMsg = t => { document.getElementById("shareMsg").textContent = t; };
+  document.getElementById("shareBtn").onclick = async () => {
+    const url = shareLink();
+    if (navigator.share) {
+      try { await navigator.share({ title: "Wetter Österreich", text: "Meine Wetter-App mit Favoriten:", url }); return; }
+      catch (e) { if (e.name === "AbortError") return; }
+    }
+    const pnl = document.getElementById("sharePanel");
+    pnl.style.display = "block"; document.getElementById("shareText").value = url; shareMsg("");
+    pnl.scrollIntoView && pnl.scrollIntoView({ behavior: "smooth" });
   };
-  const exFile = () => new File([exportHtml()], "wetter.html", { type: "text/html" });
-  document.getElementById("exShare").onclick = async () => {
-    try {
-      const f = exFile();
-      if (navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f], title: "Wetter Österreich" }); exMsg("Geteilt ✓"); }
-      else { exMsg("Teilen wird hier nicht unterstützt – bitte „Datei speichern“ nutzen."); }
-    } catch (e) { if (e.name !== "AbortError") exMsg("Teilen fehlgeschlagen – bitte „Datei speichern“ nutzen."); }
-  };
-  document.getElementById("exDownload").onclick = () => {
-    try {
-      const url = URL.createObjectURL(exFile());
-      const a = document.createElement("a"); a.href = url; a.download = "wetter.html";
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-      exMsg("Gespeichert (Downloads) ✓");
-    } catch (e) { exMsg("Speichern fehlgeschlagen – bitte Zeile kopieren."); }
-  };
-  document.getElementById("exCopy").onclick = async () => {
-    const ta = document.getElementById("exText");
-    try { await navigator.clipboard.writeText(ta.value); exMsg("Kopiert ✓"); }
-    catch { ta.focus(); ta.select(); try { document.execCommand("copy"); exMsg("Kopiert ✓"); } catch { exMsg("Bitte Text markieren und kopieren."); } }
+  document.getElementById("shareCopy").onclick = async () => {
+    const ta = document.getElementById("shareText");
+    try { await navigator.clipboard.writeText(ta.value); shareMsg("Kopiert ✓"); }
+    catch { ta.focus(); ta.select(); try { document.execCommand("copy"); shareMsg("Kopiert ✓"); } catch { shareMsg("Bitte Link markieren und kopieren."); } }
   };
 
+  checkImport();
   renderFavs();
   load();
 })();
