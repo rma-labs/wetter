@@ -391,7 +391,20 @@
   const CONF_DOT = ["#8be0b4", "#f2d38a", "#f2a0a0"];
 
   let loadSeq = 0;
-  let lastLoad = 0;
+  let lastLoad = 0, offline = null; // offline = Zeitpunkt der gezeigten zwischengespeicherten Daten
+  // Letzter erfolgreicher Stand pro Ort (max. 5 Orte), damit ohne Netz etwas angezeigt werden kann
+  const CACHE_KEY = "wetter.cache", CACHE_MAX_AGE = 48 * 3600 * 1000;
+  const placeKey = p => (+p.latitude).toFixed(3) + "," + (+p.longitude).toFixed(3);
+  function saveCache(args){
+    const c = store.get(CACHE_KEY, {}), k = placeKey(place);
+    c[k] = { at: Date.now(), args };
+    Object.keys(c).sort((a, b) => c[b].at - c[a].at).slice(5).forEach(x => delete c[x]);
+    store.set(CACHE_KEY, c);
+  }
+  function readCache(){
+    const e = store.get(CACHE_KEY, {})[placeKey(place)];
+    return e && Date.now() - e.at < CACHE_MAX_AGE ? e : null;
+  }
   async function load(){
     const my = ++loadSeq;
     const out = document.getElementById("out");
@@ -419,10 +432,16 @@
         data = hit.d;
       }
       const spread = members.length > 1 ? (data.spread || computeSpread(members.map(x => x.d))) : null;
-      lastLoad = Date.now();
+      lastLoad = Date.now(); offline = null;
       render(data, members, spread, m);
+      saveCache([data, members, spread, m]);
     } catch (e) {
-      if (my === loadSeq) showErr("Wetterdaten konnten nicht geladen werden (" + e.message + "). Falls du die Seite in der Chat-Vorschau geöffnet hast: Dort sind externe Daten blockiert. Bitte in einem normalen Browser öffnen.");
+      if (my !== loadSeq) return;
+      const cached = readCache();
+      if (cached) { offline = cached.at; render(...cached.args); return; }
+      showErr(navigator.onLine === false || e instanceof TypeError
+        ? "Keine Verbindung – und für diesen Ort ist noch kein Stand gespeichert. Bitte später erneut versuchen."
+        : "Wetterdaten konnten nicht geladen werden (" + e.message + ").");
     }
   }
 
@@ -457,7 +476,16 @@
       badge = `<span class="badge ${cls[0]}">${cls[1]}</span>`;
     }
 
-    let html = `
+    let html = "";
+    if (offline) {
+      const ageMin = Math.round((Date.now() - offline) / 60000);
+      const ago = ageMin < 2 ? "gerade eben" : ageMin < 60 ? `vor ${ageMin} Min.` : ageMin < 1440 ? `vor ${Math.round(ageMin / 60)} Std.` : "von gestern";
+      const when = new Intl.DateTimeFormat("de-AT", { weekday: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(offline));
+      html += `<div class="card" style="border:1px solid var(--accent);padding:10px 14px">
+        <b>Keine Verbindung</b> <span class="sub">– letzter Stand ${ago} (${esc(when)}). Werte und „Jetzt“ können veraltet sein.</span>
+        <button id="retryBtn" class="btn sec" type="button" style="margin:6px 0 0">↻ Erneut versuchen</button></div>`;
+    }
+    html += `
     <div class="card">
       <div class="now">
         <div>
@@ -562,6 +590,7 @@
     document.querySelectorAll(".seg[data-step]").forEach(b => b.onclick = () => {
       step = +b.dataset.step; store.set("wetter.step", step); render(...lastRender);
     });
+    const rb = document.getElementById("retryBtn"); if (rb) rb.onclick = () => load();
     document.getElementById("star").onclick = toggleFav;
     document.getElementById("home").onclick = setHome;
     renderStar();
@@ -681,6 +710,7 @@
   const REFRESH_MS = 10 * 60 * 1000;
   const refreshIfStale = () => { if (document.visibilityState === "visible" && lastLoad && Date.now() - lastLoad > REFRESH_MS) load(); };
   document.addEventListener("visibilitychange", refreshIfStale);
+  window.addEventListener("online", () => { if (offline) load(); });
   window.addEventListener("pageshow", e => { if (e.persisted) refreshIfStale(); });
   // Bleibt die App sichtbar offen (z. B. am Tablet), alle 30 Minuten aktualisieren
   setInterval(() => { if (document.visibilityState === "visible") load(); }, 30 * 60 * 1000);
