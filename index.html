@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f1b2d">
+<title>Wetter Österreich</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+  :root{
+    --bg:#0f1b2d; --card:#17263d; --card2:#1d3050; --text:#eef3fa; --muted:#9db0c9;
+    --accent:#ffb74d; --rain:#4fc3f7; --snow:#d7e6ff; --line:#2a3f60; --radius:16px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);
+       padding:16px 14px 40px;max-width:720px;margin-inline:auto;line-height:1.35}
+  h1{font-size:1.05rem;font-weight:600;color:var(--muted);margin:0 0 10px;letter-spacing:.02em}
+  .search{position:relative}
+  .search input{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);
+       color:var(--text);font-size:1rem;outline:none}
+  .search input:focus{border-color:var(--accent)}
+  .suggest{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--card2);border:1px solid var(--line);
+       border-radius:12px;overflow:hidden;z-index:10;display:none;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .suggest button{display:block;width:100%;text-align:left;background:none;border:0;color:var(--text);padding:11px 14px;
+       font-size:.95rem;border-bottom:1px solid var(--line);cursor:pointer}
+  .suggest button:last-child{border-bottom:0}
+  .suggest button:hover,.suggest button:focus{background:var(--line)}
+  .suggest small{color:var(--muted)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px;align-items:center}
+  .chip{background:var(--card);border:1px solid var(--line);color:var(--text);border-radius:999px;padding:6px 12px;
+       font-size:.85rem;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+  .chip.active{border-color:var(--accent);color:var(--accent)}
+  .chip .x{color:var(--muted);font-size:.8rem}
+  .modelbox{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;margin-left:auto}
+  select{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:6px 8px;font-size:.85rem}
+  .card{background:var(--card);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+  .now{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .place{font-size:1.25rem;font-weight:650}
+  .sub{color:var(--muted);font-size:.85rem}
+  .temp{font-size:3.2rem;font-weight:300;line-height:1}
+  .icon{font-size:3rem}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+  .grid div{background:var(--card2);border-radius:10px;padding:8px 10px}
+  .grid b{display:block;font-size:1rem;font-weight:600}
+  .grid span{color:var(--muted);font-size:.75rem}
+  .grid .hl{outline:1px solid var(--snow)}
+  .star{background:none;border:0;font-size:1.5rem;cursor:pointer;color:var(--muted);padding:0}
+  .star.on{color:var(--accent)}
+  #home{font-size:1.15rem;vertical-align:2px}
+  .badge{display:inline-block;font-size:.72rem;padding:2px 8px;border-radius:999px;margin-left:4px;vertical-align:middle}
+  .b-good{background:#1f4d3a;color:#8be0b4} .b-mid{background:#4d421f;color:#f2d38a} .b-bad{background:#4d2424;color:#f2a0a0}
+  h2{font-size:.9rem;color:var(--muted);font-weight:600;margin:0 0 10px;text-transform:uppercase;letter-spacing:.06em}
+  .hourly{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .hourly svg{display:block}
+  .legend{color:var(--muted);font-size:.75rem;margin-top:6px}
+  .day{display:grid;grid-template-columns:4.2em 2em 1fr 4.2em;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+  .day:last-child{border-bottom:0}
+  .day .name{font-weight:600}
+  .bar{position:relative;height:6px;background:var(--card2);border-radius:3px}
+  .bar i{position:absolute;top:0;bottom:0;border-radius:3px;background:linear-gradient(90deg,#4fc3f7,#ffb74d)}
+  .temps{display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:4px}
+  .temps .lo{color:var(--muted)}
+  .rainp{color:var(--rain);font-size:.8rem;text-align:right}
+  .snowl{color:var(--snow);font-size:.75rem;margin-top:3px}
+  table.cmp{width:100%;border-collapse:collapse;font-size:.85rem}
+  table.cmp th,table.cmp td{padding:7px 4px;border-bottom:1px solid var(--line);text-align:right}
+  table.cmp th:first-child,table.cmp td:first-child{text-align:left}
+  table.cmp th{color:var(--muted);font-weight:600;font-size:.75rem}
+  table.cmp tr.mean td{font-weight:700;border-bottom:0}
+  table.cmp tr.sel td{color:var(--accent);font-weight:700}
+  .msg{color:var(--muted);text-align:center;padding:30px 10px}
+  .err{color:#ff8a80}
+  footer{color:var(--muted);font-size:.75rem;text-align:center;margin-top:18px}
+  footer a{color:var(--muted)}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-top:12px;text-align:left;display:none}
+  .panel textarea{width:100%;height:110px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;
+       font-family:ui-monospace,monospace;font-size:.75rem;padding:8px}
+  .btn{background:var(--accent);color:#1a1a1a;border:0;border-radius:10px;padding:9px 14px;font-weight:600;font-size:.9rem;cursor:pointer;margin:6px 6px 6px 0}
+  .btn.sec{background:var(--card2);color:var(--text)}
+  .linkbtn{background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;font-size:inherit;padding:0}
+</style>
+</head>
+<body>
+<h1>Wetter Österreich</h1>
+
+<div class="search">
+  <input id="q" type="search" placeholder="Ort suchen, z. B. Hallstatt, Bregenz, Lienz …" autocomplete="off" aria-label="Ort suchen">
+  <div id="suggest" class="suggest" role="listbox"></div>
+</div>
+
+<div class="row">
+  <button class="chip" id="locBtn" type="button">📍 Mein Standort</button>
+  <span id="favs" style="display:contents"></span>
+  <span class="modelbox">
+    <label class="sub" for="model">Modell</label>
+    <select id="model">
+      <option value="consensus">Konsens (alle)</option>
+      <option value="best_match">Automatisch</option>
+      <option value="icon_seamless">ICON (DWD)</option>
+      <option value="ecmwf_ifs025">ECMWF</option>
+      <option value="gfs_seamless">GFS (NOAA)</option>
+      <option value="meteofrance_seamless">Météo-France</option>
+    </select>
+  </span>
+</div>
+
+<div id="out"><div class="msg">Lade …</div></div>
+
+<footer><span class="sub">🏠 = Startort festlegen (auch für „Zurücksetzen“)</span><br>Daten: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0)
+  · <button id="resetBtn" class="linkbtn" type="button">Zurücksetzen</button>
+  · <button id="exportBtn" class="linkbtn" type="button">Für Freunde exportieren</button>
+  <div id="exportPanel" class="panel">
+    <div style="margin-bottom:8px">Erzeugt eine Kopie dieser App, in der dein <b>Startort</b> und deine <b>Favoriten</b> fix eingebaut sind.
+      „Mein Standort“ (GPS) wird aus Datenschutzgründen nicht mitexportiert.</div>
+    <button id="exShare" class="btn" type="button">📤 Datei teilen</button>
+    <button id="exDownload" class="btn sec" type="button">💾 Datei speichern</button>
+    <div class="sub" style="margin:10px 0 4px">Oder diese Zeile im Code ersetzen (die Zeile, die mit <code>const PRESET</code> beginnt):</div>
+    <textarea id="exText" readonly></textarea>
+    <button id="exCopy" class="btn sec" type="button">📋 Kopieren</button>
+    <span id="exMsg" class="sub"></span>
+  </div></footer>
+
+<script>
+(() => {
+  // ===== VOREINSTELLUNG – Startort und Favoriten für neue Nutzer (per „Für Freunde exportieren“ erzeugbar) =====
+  /*PRESET*/ const PRESET = {"home":{"name":"Wien","admin1":"Wien","latitude":48.20849,"longitude":16.37208},"favs":[{"name":"Wien","admin1":"Wien","latitude":48.20849,"longitude":16.37208}]}; /*END*/
+  // =================================================================================================================
+  // Unveränderte Kopie der Seite (vor dem Rendern) – Grundlage für den Export
+  const SOURCE = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+  const DEFAULT = PRESET.home;
+  const ENSEMBLE = [
+    ["icon_seamless", "ICON"], ["ecmwf_ifs025", "ECMWF"], ["gfs_seamless", "GFS"], ["meteofrance_seamless", "Météo-Fr."]
+  ];
+  // Schneefallgrenze liegt typischerweise ca. 300 m unter der Nullgradgrenze
+  const SNOW_OFFSET = 300;
+
+  // ---------- storage (safe) ----------
+  const store = {
+    get(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+    set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  };
+
+  // Startort: vom Nutzer per 🏠 festgelegt, sonst Wien
+  let home  = store.get("wetter.home", DEFAULT);
+  let place = store.get("wetter.place", home);
+  let favs  = store.get("wetter.favs", PRESET.favs && PRESET.favs.length ? PRESET.favs : [home]);
+  const modelSel = document.getElementById("model");
+  modelSel.value = store.get("wetter.model", "consensus");
+  if (!modelSel.value) modelSel.value = "consensus";
+
+  // ---------- WMO weather codes ----------
+  const WMO = {
+    0:["Klar","☀️","🌙"],1:["Überwiegend klar","🌤️","🌙"],2:["Teilweise bewölkt","⛅","☁️"],3:["Bedeckt","☁️","☁️"],
+    45:["Nebel","🌫️"],48:["Reifnebel","🌫️"],
+    51:["Leichter Nieselregen","🌦️"],53:["Nieselregen","🌦️"],55:["Starker Nieselregen","🌧️"],
+    56:["Gefrierender Niesel","🌧️"],57:["Gefrierender Niesel","🌧️"],
+    61:["Leichter Regen","🌦️"],63:["Regen","🌧️"],65:["Starker Regen","🌧️"],
+    66:["Gefrierender Regen","🌧️"],67:["Gefrierender Regen","🌧️"],
+    71:["Leichter Schneefall","🌨️"],73:["Schneefall","🌨️"],75:["Starker Schneefall","❄️"],77:["Schneegriesel","🌨️"],
+    80:["Leichte Schauer","🌦️"],81:["Schauer","🌧️"],82:["Heftige Schauer","⛈️"],
+    85:["Schneeschauer","🌨️"],86:["Starke Schneeschauer","❄️"],
+    95:["Gewitter","⛈️"],96:["Gewitter mit Hagel","⛈️"],99:["Starkes Gewitter mit Hagel","⛈️"]
+  };
+  const wText = c => (WMO[c] || ["–"])[0];
+  const wIcon = (c, day = 1) => { const w = WMO[c]; if (!w) return "❔"; return (!day && w[2]) ? w[2] : w[1]; };
+
+  const DIRS = ["N","NO","O","SO","S","SW","W","NW"];
+  const dirName = deg => deg == null ? "" : DIRS[Math.round(((deg % 360) + 360) % 360 / 45) % 8];
+  const ok = n => n != null && !isNaN(n);
+  const fmt = n => ok(n) ? Math.round(n) : "–";
+  const fmt1 = n => ok(n) ? n.toFixed(1) : "–";
+  const nf = new Intl.NumberFormat("de-AT");
+  const meters = n => ok(n) ? nf.format(Math.round(n / 100) * 100) + " m" : "–";
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  // Flagge aus Ländercode (z. B. "GB" → 🇬🇧); Österreich bekommt keine, das ist der Normalfall
+  const flag = cc => cc && /^[A-Za-z]{2}$/.test(cc) && cc.toUpperCase() !== "AT"
+    ? " " + String.fromCodePoint(...[...cc.toUpperCase()].map(c => 127397 + c.charCodeAt(0))) : "";
+  const placeLabel = p => p.name + (p.admin1 && p.admin1 !== p.name ? ", " + p.admin1 : "");
+  const sameP = (a, b) => Math.abs(a.latitude - b.latitude) < 1e-3 && Math.abs(a.longitude - b.longitude) < 1e-3;
+  const vals = a => a.filter(ok);
+  const mean = a => { const v = vals(a); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
+  const minOf = a => { const v = vals(a); return v.length ? Math.min(...v) : null; };
+  const maxOf = a => { const v = vals(a); return v.length ? Math.max(...v) : null; };
+  // Mittel von Windrichtungen über Vektoren (sonst ergäbe N 350° + N 10° = S 180°)
+  const circMean = a => { const v = vals(a); if (!v.length) return null;
+    const x = v.reduce((s, d) => s + Math.cos(d * Math.PI / 180), 0), y = v.reduce((s, d) => s + Math.sin(d * Math.PI / 180), 0);
+    if (Math.hypot(x, y) < 1e-6) return v[0];
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360; };
+  const snowLine = fl => ok(fl) ? Math.max(0, fl - SNOW_OFFSET) : null;
+
+  // ---------- search ----------
+  const q = document.getElementById("q");
+  const sug = document.getElementById("suggest");
+  let timer = null, seq = 0;
+
+  q.addEventListener("input", () => {
+    clearTimeout(timer);
+    const term = q.value.trim();
+    if (term.length < 2) { sug.style.display = "none"; return; }
+    timer = setTimeout(() => search(term), 250);
+  });
+  q.addEventListener("keydown", e => {
+    if (e.key === "Enter") { const b = sug.querySelector("button:not([disabled])"); if (b) b.click(); }
+    if (e.key === "Escape") sug.style.display = "none";
+  });
+  document.addEventListener("click", e => { if (!e.target.closest(".search")) sug.style.display = "none"; });
+
+  // Suche: zuerst nur Österreich; ohne Treffer automatisch weltweit, sonst per Link „Weltweit suchen …“
+  async function search(term, world = false){
+    const my = ++seq;
+    try {
+      const url = "https://geocoding-api.open-meteo.com/v1/search?count=8&language=de&format=json" +
+                  (world ? "" : "&countryCode=AT") + "&name=" + encodeURIComponent(term);
+      const r = await fetch(url); const j = await r.json();
+      if (my !== seq) return;
+      const res = j.results || [];
+      if (!res.length && !world) return search(term, true);
+      sug.innerHTML = !res.length ? '<button type="button" disabled>Kein Ort gefunden</button>'
+                    : world ? '<button type="button" disabled><small>Orte weltweit:</small></button>' : "";
+      res.forEach(p => {
+        const b = document.createElement("button"); b.type = "button";
+        const extra = [p.admin2, p.admin1].filter(Boolean).filter(x => x !== p.name).join(", ");
+        b.innerHTML = esc(p.name) + flag(p.country_code) + (extra ? " <small>" + esc(extra) + "</small>" : "") +
+                      (p.elevation != null ? " <small>· " + Math.round(p.elevation) + " m</small>" : "");
+        b.onclick = () => {
+          setPlace({ name: p.name, admin1: p.admin1 || "", cc: p.country_code || "", latitude: p.latitude, longitude: p.longitude, elevation: p.elevation });
+          q.value = ""; sug.style.display = "none"; q.blur();
+        };
+        sug.appendChild(b);
+      });
+      if (!world) {
+        const b = document.createElement("button"); b.type = "button";
+        b.innerHTML = '<small>🌍 Weltweit suchen …</small>';
+        b.onclick = () => search(term, true);
+        sug.appendChild(b);
+      }
+      sug.style.display = "block";
+    } catch (e) {
+      sug.innerHTML = '<button type="button" disabled>Suche fehlgeschlagen – in der Chat-Vorschau sind externe Daten blockiert</button>';
+      sug.style.display = "block";
+    }
+  }
+
+  // ---------- geolocation ----------
+  document.getElementById("locBtn").onclick = () => {
+    if (!navigator.geolocation) return showErr("Standort wird von diesem Browser nicht unterstützt.");
+    navigator.geolocation.getCurrentPosition(pos => {
+      const { latitude, longitude } = pos.coords;
+      setPlace({ name: "Mein Standort", admin1: "", latitude, longitude });
+    }, () => showErr("Standort konnte nicht ermittelt werden (Berechtigung?)."), { timeout: 10000, maximumAge: 600000 });
+  };
+
+  // ---------- favourites ----------
+  function renderFavs(){
+    const el = document.getElementById("favs"); el.innerHTML = "";
+    favs.forEach((f, i) => {
+      const b = document.createElement("button"); b.type = "button";
+      b.className = "chip" + (sameP(f, place) ? " active" : "");
+      b.innerHTML = esc(f.name) + ' <span class="x" title="Entfernen">✕</span>';
+      b.onclick = e => {
+        if (e.target.classList.contains("x")) { favs.splice(i, 1); store.set("wetter.favs", favs); renderFavs(); renderStar(); return; }
+        setPlace(f);
+      };
+      el.appendChild(b);
+    });
+  }
+  function toggleFav(){
+    const i = favs.findIndex(f => sameP(f, place));
+    if (i >= 0) favs.splice(i, 1); else favs.push(place);
+    store.set("wetter.favs", favs); renderFavs(); renderStar();
+  }
+  function setHome(){
+    home = { name: place.name, admin1: place.admin1 || "", cc: place.cc || "", latitude: place.latitude, longitude: place.longitude, elevation: place.elevation };
+    store.set("wetter.home", home);
+    if (!favs.some(f => sameP(f, home))) { favs.unshift(home); store.set("wetter.favs", favs); renderFavs(); }
+    renderStar();
+  }
+  function renderStar(){
+    const s = document.getElementById("star"); if (!s) return;
+    const on = favs.some(f => sameP(f, place));
+    s.classList.toggle("on", on); s.textContent = on ? "★" : "☆";
+    s.title = on ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen";
+    const hb = document.getElementById("home");
+    if (hb) { const isHome = sameP(home, place); hb.style.opacity = isHome ? "1" : ".35";
+      hb.title = isHome ? "Das ist dein Startort" : "Als Startort festlegen"; }
+  }
+
+  modelSel.onchange = () => { store.set("wetter.model", modelSel.value); load(); };
+  document.getElementById("resetBtn").onclick = () => {
+    favs = sameP(home, PRESET.home) && PRESET.favs.length ? PRESET.favs.slice() : [home]; store.set("wetter.favs", favs);
+    modelSel.value = "consensus"; store.set("wetter.model", "consensus");
+    setPlace(home);
+  };
+
+  function setPlace(p){ place = p; store.set("wetter.place", p); renderFavs(); load(); }
+  function showErr(m){ document.getElementById("out").innerHTML = '<div class="card msg err">' + esc(m) + '</div>'; }
+
+  // ---------- data ----------
+  const CUR = "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day,precipitation,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl";
+  const HOURLY = "temperature_2m,precipitation_probability,precipitation,snowfall,weather_code,is_day,freezing_level_height,wind_speed_10m,wind_gusts_10m,wind_direction_10m";
+  const DAILY = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum,precipitation_probability_max,sunrise,sunset";
+
+  async function fetchModel(model){
+    const params = new URLSearchParams({
+      latitude: place.latitude, longitude: place.longitude, timezone: "auto", forecast_days: 7,
+      current: CUR, hourly: HOURLY, daily: DAILY
+    });
+    if (model && model !== "best_match") params.set("models", model);
+    const r = await fetch("https://api.open-meteo.com/v1/forecast?" + params);
+    const d = await r.json();
+    if (d.error) throw new Error(d.reason || "API-Fehler");
+    return d;
+  }
+
+  // Combine several model responses into one "consensus" response (mean) plus spread info.
+  function combine(list){
+    const base = list[0];
+    const pick = (obj, key) => list.map(d => d[obj]?.[key]);
+    const meanArr = (obj, key, len) => Array.from({ length: len }, (_, i) => mean(list.map(d => d[obj]?.[key]?.[i])));
+    const modeCode = codes => {
+      const v = vals(codes); if (!v.length) return null;
+      const cnt = {}; v.forEach(c => cnt[c] = (cnt[c] || 0) + 1);
+      // most frequent; ties -> more significant (higher) code
+      return +Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || b - a)[0];
+    };
+    const hl = base.hourly.time.length, dlen = base.daily.time.length;
+    const out = {
+      elevation: base.elevation,
+      current: { ...base.current },
+      hourly: { time: base.hourly.time, is_day: base.hourly.is_day },
+      daily: { time: base.daily.time, sunrise: base.daily.sunrise, sunset: base.daily.sunset },
+      spread: { hourlyMin: [], hourlyMax: [], dailyMax: [], dailyMin: [], dailyPrec: [] }
+    };
+    for (const k of CUR.split(",")) {
+      if (k === "weather_code") out.current[k] = modeCode(pick("current", k));
+      else if (k === "is_day") out.current[k] = base.current[k];
+      else if (k === "wind_direction_10m") out.current[k] = circMean(pick("current", k));
+      else out.current[k] = mean(pick("current", k));
+    }
+    for (const k of HOURLY.split(",")) {
+      if (k === "is_day") continue;
+      if (k === "wind_direction_10m") { out.hourly[k] = Array.from({ length: hl }, (_, i) => circMean(list.map(d => d.hourly[k]?.[i]))); continue; }
+      if (k === "weather_code") out.hourly[k] = Array.from({ length: hl }, (_, i) => modeCode(list.map(d => d.hourly[k]?.[i])));
+      else out.hourly[k] = meanArr("hourly", k, hl);
+    }
+    for (const k of DAILY.split(",")) {
+      if (k === "sunrise" || k === "sunset") continue;
+      if (k === "weather_code") out.daily[k] = Array.from({ length: dlen }, (_, i) => modeCode(list.map(d => d.daily[k]?.[i])));
+      else out.daily[k] = meanArr("daily", k, dlen);
+    }
+    out.spread = computeSpread(list);
+    return out;
+  }
+
+  // Spread (disagreement) between models – used for the band, ± values and the confidence rating.
+  function computeSpread(list){
+    const base = list[0], hl = base.hourly.time.length, dlen = base.daily.time.length;
+    const sp = { hourlyMin: [], hourlyMax: [], dailyMax: [], dailyMin: [], dailyPrec: [], conf: [] };
+    for (let i = 0; i < hl; i++) {
+      const t = list.map(d => d.hourly.temperature_2m?.[i]);
+      sp.hourlyMin.push(minOf(t)); sp.hourlyMax.push(maxOf(t));
+    }
+    for (let i = 0; i < dlen; i++) {
+      const mx = list.map(d => d.daily.temperature_2m_max?.[i]);
+      const mn = list.map(d => d.daily.temperature_2m_min?.[i]);
+      const pr = list.map(d => d.daily.precipitation_sum?.[i]);
+      const dMax = maxOf(mx) - minOf(mx), dMin = maxOf(mn) - minOf(mn);
+      const pLo = minOf(pr), pHi = maxOf(pr);
+      sp.dailyMax.push(dMax); sp.dailyMin.push(dMin); sp.dailyPrec.push([pLo, pHi]);
+      sp.conf.push(rateConfidence(Math.max(dMax || 0, dMin || 0), pLo, pHi));
+    }
+    return sp;
+  }
+
+  // 0 = eher sicher, 1 = mittel, 2 = unsicher. Worst of temperature and precipitation disagreement.
+  function rateConfidence(tSpread, pLo, pHi){
+    const t = tSpread <= 2 ? 0 : tSpread <= 4 ? 1 : 2;
+    let p = 0;
+    if (ok(pLo) && ok(pHi)) {
+      const diff = pHi - pLo;
+      if ((pHi >= 2 && pLo < 0.2) || diff >= 6) p = 2;        // dry vs. clearly wet, or big amount gap
+      else if ((pHi >= 0.5 && pLo < 0.1) || diff >= 2) p = 1; // some say a bit of rain, some none
+    }
+    return Math.max(t, p);
+  }
+  const CONF = [["b-good", "Prognose eher sicher"], ["b-mid", "Prognose mittel sicher"], ["b-bad", "Prognose unsicher"]];
+  const CONF_DOT = ["#8be0b4", "#f2d38a", "#f2a0a0"];
+
+  let loadSeq = 0;
+  async function load(){
+    const my = ++loadSeq;
+    const out = document.getElementById("out");
+    if (!out.querySelector(".card:not(.msg)")) out.innerHTML = '<div class="msg">Lade …</div>';
+    try {
+      const m = modelSel.value;
+      // Always load all models (for comparison table + confidence), plus "Automatisch" if selected.
+      const jobs = ENSEMBLE.map(([id]) => fetchModel(id));
+      if (m === "best_match") jobs.push(fetchModel("best_match"));
+      const res = await Promise.allSettled(jobs);
+      if (my !== loadSeq) return;
+      const members = res.slice(0, ENSEMBLE.length)
+        .map((r, i) => r.status === "fulfilled" ? { id: ENSEMBLE[i][0], name: ENSEMBLE[i][1], d: r.value } : null).filter(Boolean);
+      let data;
+      if (m === "consensus") {
+        if (!members.length) throw new Error(res[0].reason?.message || "keine Modelldaten");
+        data = members.length > 1 ? combine(members.map(x => x.d)) : members[0].d;
+      } else if (m === "best_match") {
+        const r = res[ENSEMBLE.length];
+        if (r.status !== "fulfilled") throw r.reason;
+        data = r.value;
+      } else {
+        const hit = members.find(x => x.id === m);
+        if (!hit) throw res[ENSEMBLE.findIndex(([id]) => id === m)].reason || new Error("Modell nicht verfügbar");
+        data = hit.d;
+      }
+      const spread = members.length > 1 ? (data.spread || computeSpread(members.map(x => x.d))) : null;
+      render(data, members, spread, m);
+    } catch (e) {
+      if (my === loadSeq) showErr("Wetterdaten konnten nicht geladen werden (" + e.message + "). Falls du die Seite in der Chat-Vorschau geöffnet hast: Dort sind externe Daten blockiert. Bitte in einem normalen Browser öffnen.");
+    }
+  }
+
+  // ---------- render ----------
+  function render(d, members, spread, mode){
+    const c = d.current, h = d.hourly, dl = d.daily;
+    const updated = (c.time || "").slice(11, 16);
+    const sunrise = (dl.sunrise?.[0] || "").slice(11, 16), sunset = (dl.sunset?.[0] || "").slice(11, 16);
+    const elev = ok(d.elevation) ? d.elevation : place.elevation;
+
+    // index of current hour
+    const nowKey = (c.time || "").slice(0, 13);
+    let start = h.time.findIndex(t => t.slice(0, 13) === nowKey); if (start < 0) start = 0;
+    const N = Math.min(25, h.time.length - start);
+    const idx = Array.from({ length: N }, (_, k) => start + k);
+
+    // snow info
+    const flNow = h.freezing_level_height?.[start];
+    const slNow = snowLine(flNow);
+    const snow24 = idx.reduce((s, i) => s + (ok(h.snowfall?.[i]) ? h.snowfall[i] : 0), 0);
+    const wetIdx = idx.filter(i => (h.precipitation?.[i] || 0) >= 0.1);
+    const slWet = minOf(wetIdx.map(i => snowLine(h.freezing_level_height?.[i])));
+    const snowAtPlace = ok(slWet) && ok(elev) && slWet <= elev + 100;
+
+    // consensus badge
+    let badge = "";
+    if (spread) {
+      const cls = CONF[spread.conf[0]];
+      badge = `<span class="badge ${cls[0]}">${cls[1]}</span>`;
+    }
+
+    let html = `
+    <div class="card">
+      <div class="now">
+        <div>
+          <div class="place">${esc(placeLabel(place))}${flag(place.cc)} <button id="star" class="star" type="button">☆</button> <button id="home" class="star" type="button">🏠</button></div>
+          <div class="sub">${esc(wText(c.weather_code))} · Stand ${esc(updated)} · ${fmt(elev)} m</div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+            <div class="temp">${fmt(c.temperature_2m)}°</div>
+            <div class="sub">Gefühlt ${fmt(c.apparent_temperature)}°<br>
+              24 h: ↑ ${fmt(maxOf(idx.map(i => h.temperature_2m[i])))}° ↓ ${fmt(minOf(idx.map(i => h.temperature_2m[i])))}°</div>
+          </div>
+          ${badge ? `<div style="margin-top:8px">${badge} <span class="sub">heute, ${members.length} Modelle</span></div>` : ""}
+        </div>
+        <div class="icon">${wIcon(c.weather_code, c.is_day)}</div>
+      </div>
+      <div class="grid">
+        <div><b>${fmt(c.wind_speed_10m)} km/h</b><span>Wind ${dirName(c.wind_direction_10m)}</span></div>
+        <div><b>${fmt(c.wind_gusts_10m)} km/h</b><span>Böen</span></div>
+        <div><b>${fmt(c.relative_humidity_2m)} %</b><span>Luftfeuchte</span></div>
+        <div><b>${fmt1(c.precipitation ?? 0)} mm</b><span>Niederschlag jetzt</span></div>
+        <div><b>${fmt(c.pressure_msl)} hPa</b><span>Luftdruck</span></div>
+        <div><b>${esc(sunrise)}–${esc(sunset)}</b><span>Sonne</span></div>
+        <div class="${snowAtPlace ? "hl" : ""}"><b>❄ ${meters(slNow)}</b><span>Schneefallgrenze</span></div>
+        <div><b>${meters(flNow)}</b><span>Nullgradgrenze</span></div>
+        <div class="${snow24 >= 0.5 ? "hl" : ""}"><b>${fmt1(snow24)} cm</b><span>Neuschnee 24 h</span></div>
+      </div>
+      ${snowAtPlace ? `<div class="snowl" style="margin-top:10px">❄ Schneefallgrenze sinkt in den nächsten 24 h bis ca. ${meters(slWet)} – Schnee bzw. Schneeregen am Ort möglich.</div>` : ""}
+    </div>`;
+
+    const hrs = idx.map(i => ({
+      t: h.time[i].slice(11, 13), temp: h.temperature_2m[i], pp: h.precipitation_probability?.[i],
+      mm: h.precipitation?.[i], code: h.weather_code[i], day: h.is_day?.[i] ?? 1,
+      ws: h.wind_speed_10m?.[i], wg: h.wind_gusts_10m?.[i], wd: h.wind_direction_10m?.[i],
+      lo: d.spread?.hourlyMin[i], hi: d.spread?.hourlyMax[i]
+    }));
+    html += `<div class="card"><h2>Nächste 24 Stunden</h2><div class="hourly">${hourlySVG(hrs)}</div>
+      <div class="legend">Balken = Niederschlag (mm/h), Prozent = Wahrscheinlichkeit · Pfeil = Windrichtung, Zahl = Wind km/h, B = Böen${d.spread ? " · helles Band = Temperatur-Spanne der Modelle" : ""}</div></div>`;
+
+    // 7 days
+    const gMin = minOf(dl.temperature_2m_min), gMax = maxOf(dl.temperature_2m_max), span = Math.max(1, gMax - gMin);
+    const wd = new Intl.DateTimeFormat("de-AT", { weekday: "short", timeZone: "UTC" });
+    html += `<div class="card"><h2>7 Tage <span style="text-transform:none;letter-spacing:0;font-weight:400">· je 0–24 Uhr</span></h2>`;
+    dl.time.forEach((t, i) => {
+      const lo = dl.temperature_2m_min[i], hi = dl.temperature_2m_max[i];
+      const name = i === 0 ? "Heute" : i === 1 ? "Morgen" : wd.format(new Date(t + "T12:00:00Z"));
+      const pp = dl.precipitation_probability_max?.[i], mm = dl.precipitation_sum?.[i] ?? 0, sn = dl.snowfall_sum?.[i] ?? 0;
+      // snow line for that day: lowest during wet hours
+      const dayIdx = []; h.time.forEach((ht, k) => { if (ht.slice(0, 10) === t && (h.precipitation?.[k] || 0) >= 0.1) dayIdx.push(k); });
+      const sl = minOf(dayIdx.map(k => snowLine(h.freezing_level_height?.[k])));
+      const unc = d.spread ? Math.max(d.spread.dailyMax[i] || 0, d.spread.dailyMin[i] || 0) : null;
+      const pr = d.spread?.dailyPrec[i];
+      html += `<div class="day">
+        <div><div class="name">${esc(name)}</div><div class="sub">${t.slice(8,10)}.${t.slice(5,7)}.${spread ? ` <span title="${esc(CONF[spread.conf[i]][1])}" style="color:${CONF_DOT[spread.conf[i]]}">●</span>` : ""}</div></div>
+        <div style="font-size:1.4rem" title="${esc(wText(dl.weather_code[i]))}">${wIcon(dl.weather_code[i])}</div>
+        <div><div class="temps"><span class="lo">${fmt(lo)}°</span>${ok(unc) && unc >= 3 ? `<span class="sub">±${fmt(unc / 2)}°</span>` : ""}<span>${fmt(hi)}°</span></div>
+          <div class="bar"><i style="left:${(lo - gMin) / span * 100}%;right:${(gMax - hi) / span * 100}%"></i></div>
+          ${ok(sl) && mm >= 0.5 ? `<div class="snowl">❄ Schneefallgrenze ~${meters(sl)}${sn >= 0.5 ? " · " + fmt1(sn) + " cm Neuschnee" : ""}</div>` : ""}</div>
+        <div class="rainp">${ok(pp) ? fmt(pp) + " %" : ""}<br>${mm >= 0.1 ? fmt1(mm) + " mm" : ""}${pr && ok(pr[1]) && pr[1] - pr[0] >= 2 ? `<br><span class="sub">${fmt1(pr[0])}–${fmt1(pr[1])}</span>` : ""}</div>
+      </div>`;
+    });
+    if (spread) html += `<div class="legend">● Prognosesicherheit pro Tag (grün = eher sicher, gelb = mittel, rot = unsicher) – aus der Übereinstimmung der Modelle bei Temperatur und Regen.</div>`;
+    html += `</div>`;
+
+    // model comparison – always shown when at least 2 models are available
+    if (members && members.length > 1) {
+      const row = (label, x, cls) => `<tr class="${cls}"><td>${esc(label)}</td>
+          <td>${fmt(x.temperature_2m_min?.[0])}/${fmt(x.temperature_2m_max?.[0])}°</td><td>${fmt1(x.precipitation_sum?.[0])}</td>
+          <td>${fmt(x.temperature_2m_min?.[1])}/${fmt(x.temperature_2m_max?.[1])}°</td><td>${fmt1(x.precipitation_sum?.[1])}</td></tr>`;
+      const cons = mode === "consensus" ? dl : combine(members.map(x => x.d)).daily;
+      html += `<div class="card"><h2>Modellvergleich</h2><table class="cmp">
+        <tr><th>Modell</th><th>Heute</th><th>Regen</th><th>Morgen</th><th>Regen</th></tr>`;
+      members.forEach(m => { html += row((m.id === mode ? "▸ " : "") + m.name, m.d.daily, m.id === mode ? "sel" : ""); });
+      if (mode === "best_match") html += row("▸ Automatisch", dl, "sel");
+      html += row((mode === "consensus" ? "▸ " : "") + "Konsens", cons, "mean" + (mode === "consensus" ? " sel" : ""));
+      html += `</table><div class="legend">Temperatur min/max, Regen in mm. ▸ = gerade angezeigt. Konsens = Mittelwert der Modelle.</div></div>`;
+    }
+
+    document.getElementById("out").innerHTML = html;
+    document.getElementById("star").onclick = toggleFav;
+    document.getElementById("home").onclick = setHome;
+    renderStar();
+  }
+
+  function hourlySVG(hrs){
+    const colW = 46, W = hrs.length * colW, TOP = 20, H = 248 + TOP;
+    const windY = 204, windTxt = 230, gustTxt = 244;
+    const windCol = v => !ok(v) ? "#9db0c9" : v >= 60 ? "#f2a0a0" : v >= 40 ? "#ffb74d" : v >= 20 ? "#eef3fa" : "#9db0c9";
+    const tTop = 50, tBot = 112, barBase = 166, barMax = 40;
+    const all = hrs.flatMap(x => [x.temp, x.lo, x.hi]);
+    const mn = minOf(all), mx = maxOf(all), rng = Math.max(1, mx - mn);
+    const y = v => tBot - (v - mn) / rng * (tBot - tTop);
+    const cx = i => i * colW + colW / 2;
+    // precip scale: at least 1 mm full height, sqrt so light rain stays visible
+    const maxMm = Math.max(1, maxOf(hrs.map(x => x.mm || 0)));
+    let head = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif">`;
+    // time labels on top, day boundary (0 Uhr) as a subtle vertical line
+    hrs.forEach((x, i) => {
+      if (i > 0 && x.t === "00") head += `<line x1="${i * colW}" y1="2" x2="${i * colW}" y2="${H - 2}" stroke="#9db0c9" stroke-opacity=".35" stroke-width="1"/>`;
+      head += `<text x="${cx(i)}" y="13" text-anchor="middle" font-size="11" font-weight="${i === 0 ? 700 : 400}" fill="${i === 0 ? "#eef3fa" : "#9db0c9"}">${i === 0 ? "Jetzt" : x.t}</text>`;
+    });
+    let s = "";
+    s += `<line x1="0" y1="${barBase}" x2="${W}" y2="${barBase}" stroke="#2a3f60"/>`;
+    s += `<line x1="0" y1="${windY - 16}" x2="${W}" y2="${windY - 16}" stroke="#2a3f60" stroke-dasharray="2 3"/>`;
+    // spread band
+    if (hrs.every(x => ok(x.lo) && ok(x.hi))) {
+      const top = hrs.map((x, i) => `${cx(i)},${y(x.hi).toFixed(1)}`);
+      const bot = hrs.map((x, i) => `${cx(i)},${y(x.lo).toFixed(1)}`).reverse();
+      s += `<polygon points="${top.concat(bot).join(" ")}" fill="#ffb74d" opacity=".15"/>`;
+    }
+    hrs.forEach((x, i) => {
+      const mm = x.mm || 0;
+      if (mm >= 0.05) {
+        const hBar = Math.max(3, Math.sqrt(mm / maxMm) * barMax);
+        s += `<rect x="${cx(i) - 9}" y="${barBase - hBar}" width="18" height="${hBar}" rx="3" fill="#4fc3f7" opacity=".8"/>`;
+        if (mm >= 0.2) s += `<text x="${cx(i)}" y="${barBase - hBar - 3}" text-anchor="middle" font-size="9" fill="#4fc3f7">${mm.toFixed(1)}</text>`;
+      }
+      if (ok(x.pp) && x.pp > 0) s += `<text x="${cx(i)}" y="${barBase + 14}" text-anchor="middle" font-size="10" fill="#4fc3f7">${Math.round(x.pp)}%</text>`;
+      // wind: arrow points where the wind blows TO (direction is where it comes FROM)
+      if (ok(x.wd)) s += `<path d="M0,-9 L5.5,5 L0,2 L-5.5,5 Z" fill="${windCol(x.ws)}" transform="translate(${cx(i)},${windY}) rotate(${Math.round((x.wd + 180) % 360)})"><title>aus ${dirName(x.wd)}</title></path>`;
+      if (ok(x.ws)) s += `<text x="${cx(i)}" y="${windTxt}" text-anchor="middle" font-size="12" font-weight="600" fill="${windCol(x.ws)}">${fmt(x.ws)}</text>`;
+      if (ok(x.wg)) s += `<text x="${cx(i)}" y="${gustTxt}" text-anchor="middle" font-size="9.5" fill="${windCol(x.wg)}">B ${fmt(x.wg)}</text>`;
+      s += `<text x="${cx(i)}" y="22" text-anchor="middle" font-size="17">${wIcon(x.code, x.day)}</text>`;
+    });
+    const pts = hrs.map((x, i) => `${cx(i)},${y(x.temp).toFixed(1)}`).join(" ");
+    s += `<polyline points="${pts}" fill="none" stroke="#ffb74d" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+    hrs.forEach((x, i) => {
+      s += `<circle cx="${cx(i)}" cy="${y(x.temp)}" r="3" fill="#ffb74d"/>`;
+      s += `<text x="${cx(i)}" y="${y(x.temp) - 8}" text-anchor="middle" font-size="12" fill="#eef3fa">${fmt(x.temp)}°</text>`;
+    });
+    return head + `<g transform="translate(0,${TOP})">` + s + `</g></svg>`;
+  }
+
+  // ---------- export for friends ----------
+  const clean = p => ({ name: p.name, admin1: p.admin1 || "", ...(p.cc && p.cc !== "AT" ? { cc: p.cc } : {}), latitude: +(+p.latitude).toFixed(5), longitude: +(+p.longitude).toFixed(5) });
+  const isGps = p => p.name === "Mein Standort";
+  function presetLine(){
+    const h = isGps(home) ? (favs.find(f => !isGps(f)) || DEFAULT) : home;
+    const preset = { home: clean(h), favs: favs.filter(f => !isGps(f)).map(clean) };
+    if (!preset.favs.length) preset.favs = [preset.home];
+    const json = JSON.stringify(preset).replace(/</g, "\\u003c");
+    return "/*PRESET*/ const PRESET = " + json + "; /*END*/";
+  }
+  function exportHtml(){
+    const line = presetLine();
+    return SOURCE.replace(/\/\*PRESET\*\/[\s\S]*?\/\*END\*\//, () => line);
+  }
+  const exMsg = t => { document.getElementById("exMsg").textContent = t; };
+  document.getElementById("exportBtn").onclick = () => {
+    const pnl = document.getElementById("exportPanel");
+    const show = pnl.style.display !== "block";
+    pnl.style.display = show ? "block" : "none";
+    if (show) { document.getElementById("exText").value = presetLine(); exMsg(""); pnl.scrollIntoView && pnl.scrollIntoView({ behavior: "smooth" }); }
+  };
+  const exFile = () => new File([exportHtml()], "wetter.html", { type: "text/html" });
+  document.getElementById("exShare").onclick = async () => {
+    try {
+      const f = exFile();
+      if (navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f], title: "Wetter Österreich" }); exMsg("Geteilt ✓"); }
+      else { exMsg("Teilen wird hier nicht unterstützt – bitte „Datei speichern“ nutzen."); }
+    } catch (e) { if (e.name !== "AbortError") exMsg("Teilen fehlgeschlagen – bitte „Datei speichern“ nutzen."); }
+  };
+  document.getElementById("exDownload").onclick = () => {
+    try {
+      const url = URL.createObjectURL(exFile());
+      const a = document.createElement("a"); a.href = url; a.download = "wetter.html";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      exMsg("Gespeichert (Downloads) ✓");
+    } catch (e) { exMsg("Speichern fehlgeschlagen – bitte Zeile kopieren."); }
+  };
+  document.getElementById("exCopy").onclick = async () => {
+    const ta = document.getElementById("exText");
+    try { await navigator.clipboard.writeText(ta.value); exMsg("Kopiert ✓"); }
+    catch { ta.focus(); ta.select(); try { document.execCommand("copy"); exMsg("Kopiert ✓"); } catch { exMsg("Bitte Text markieren und kopieren."); } }
+  };
+
+  renderFavs();
+  load();
+})();
+</script>
+<script>
+  // Als installierbare Web-App: Service Worker nur bei https (z. B. GitHub Pages), nicht bei lokal geöffneter Datei
+  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+</script>
+</body>
+</html>
