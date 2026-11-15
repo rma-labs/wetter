@@ -420,7 +420,7 @@
         .map((r, i) => r.status === "fulfilled" ? { id: ENSEMBLE[i][0], name: ENSEMBLE[i][1], d: r.value } : null).filter(Boolean);
       let data;
       if (m === "consensus") {
-        if (!members.length) throw new Error(res[0].reason?.message || "keine Modelldaten");
+        if (!members.length) throw res[0].reason || new Error("keine Modelldaten");
         data = members.length > 1 ? combine(members.map(x => x.d)) : members[0].d;
       } else if (m === "best_match") {
         const r = res[ENSEMBLE.length];
