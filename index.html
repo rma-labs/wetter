@@ -32,9 +32,9 @@
   .chip{background:var(--card);border:1px solid var(--line);color:var(--text);border-radius:999px;padding:6px 12px;
        font-size:.85rem;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
   .chip.active{border-color:var(--accent);color:var(--accent)}
-  .chip.editing{border-style:dashed;user-select:none;-webkit-user-select:none}
-  .chip .mv{color:var(--accent);padding:0 4px;font-size:.8rem}
-  .chip{-webkit-touch-callout:none}
+  .chip.editing{border-style:dashed;padding:0;gap:0}
+  .chip .mv{color:var(--accent);padding:10px 14px;font-size:1rem;line-height:1}
+  .chip{-webkit-touch-callout:none;user-select:none;-webkit-user-select:none;touch-action:manipulation}
   .chip .x{color:var(--muted);font-size:.8rem}
   .modelbox{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;margin-left:auto}
   select{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:6px 8px;font-size:.85rem}
