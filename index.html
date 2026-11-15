@@ -389,6 +389,7 @@
   const CONF_DOT = ["#8be0b4", "#f2d38a", "#f2a0a0"];
 
   let loadSeq = 0;
+  let lastLoad = 0;
   async function load(){
     const my = ++loadSeq;
     const out = document.getElementById("out");
@@ -416,6 +417,7 @@
         data = hit.d;
       }
       const spread = members.length > 1 ? (data.spread || computeSpread(members.map(x => x.d))) : null;
+      lastLoad = Date.now();
       render(data, members, spread, m);
     } catch (e) {
       if (my === loadSeq) showErr("Wetterdaten konnten nicht geladen werden (" + e.message + "). Falls du die Seite in der Chat-Vorschau geöffnet hast: Dort sind externe Daten blockiert. Bitte in einem normalen Browser öffnen.");
@@ -657,6 +659,15 @@
   };
 
   checkImport();
+
+  // ---------- automatisch aktualisieren ----------
+  // Beim Zurückkehren in die App (aus dem Hintergrund) neu laden, wenn die Daten älter als 10 Minuten sind
+  const REFRESH_MS = 10 * 60 * 1000;
+  const refreshIfStale = () => { if (document.visibilityState === "visible" && lastLoad && Date.now() - lastLoad > REFRESH_MS) load(); };
+  document.addEventListener("visibilitychange", refreshIfStale);
+  window.addEventListener("pageshow", e => { if (e.persisted) refreshIfStale(); });
+  // Bleibt die App sichtbar offen (z. B. am Tablet), alle 30 Minuten aktualisieren
+  setInterval(() => { if (document.visibilityState === "visible") load(); }, 30 * 60 * 1000);
   renderFavs();
   load();
 })();
