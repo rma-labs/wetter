@@ -82,6 +82,8 @@
        font-family:ui-monospace,monospace;font-size:.75rem;padding:8px}
   .btn{background:var(--accent);color:#1a1a1a;border:0;border-radius:10px;padding:9px 14px;font-weight:600;font-size:.9rem;cursor:pointer;margin:6px 6px 6px 0}
   .btn.sec{background:var(--card2);color:var(--text)}
+  .ctrl{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:.75rem;margin:-2px 0 10px}
+  .ctrl>span{display:inline-flex;align-items:center;gap:6px}
   .segs{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
   .seg{background:none;border:0;color:var(--muted);font-size:.75rem;padding:4px 10px;cursor:pointer;letter-spacing:0;text-transform:none}
   .seg.on{background:var(--card2);color:var(--accent);font-weight:600}
@@ -448,6 +450,7 @@
 
   // ---------- render ----------
   let step = store.get("wetter.step", 1) === 3 ? 3 : 1, lastRender = null;
+  let range = store.get("wetter.range", 24) === 48 ? 48 : 24; // Zeitraum der Stundengrafik (ohne gewählten Tag)
   let selDay = null; // gewählter Tag (JJJJ-MM-TT) für die Stundengrafik; null = nächste 24 h
   function render(d, members, spread, mode){
     lastRender = [d, members, spread, mode];
@@ -517,11 +520,12 @@
 
     // Gewählter Tag: dessen Stunden 0–23 Uhr; „Heute“ oder unbekannter Tag = nächste 24 h
     if (selDay && (selDay === dl.time[0] || !dl.time.includes(selDay))) selDay = null;
-    const chartIdx = selDay ? h.time.map((t, i) => t.slice(0, 10) === selDay ? i : -1).filter(i => i >= 0) : idx;
+    const chartIdx = selDay ? h.time.map((t, i) => t.slice(0, 10) === selDay ? i : -1).filter(i => i >= 0)
+      : Array.from({ length: Math.min(range + 1, h.time.length - start) }, (_, k) => start + k);
     const wdLong = new Intl.DateTimeFormat("de-AT", { weekday: "long", timeZone: "UTC" });
     const chartTitle = selDay
-      ? `${wdLong.format(new Date(selDay + "T12:00:00Z"))}, ${selDay.slice(8, 10)}.${selDay.slice(5, 7)}. <button id="dayBack" class="seg" type="button" style="border:1px solid var(--line);border-radius:8px">✕ 24 h</button>`
-      : "Nächste 24 Stunden";
+      ? `${wdLong.format(new Date(selDay + "T12:00:00Z"))}, ${selDay.slice(8, 10)}.${selDay.slice(5, 7)}. <button id="dayBack" class="seg" type="button" style="border:1px solid var(--line);border-radius:8px">✕ zurück</button>`
+      : `Nächste ${range} Stunden`;
     let hrs = chartIdx.map(i => ({
       date: h.time[i].slice(0, 10), t: h.time[i].slice(11, 13), temp: h.temperature_2m[i], pp: h.precipitation_probability?.[i],
       mm: h.precipitation?.[i], code: h.weather_code[i], day: h.is_day?.[i] ?? 1,
@@ -531,7 +535,7 @@
     // 3-Stunden-Ansicht: Temperatur/Richtung zum Startzeitpunkt, Regen als Summe, Böen/Wahrscheinlichkeit als Maximum
     if (step === 3) {
       const bins = [];
-      for (let k = 0; k + 3 <= Math.min(24, hrs.length); k += 3) {
+      for (let k = 0; k + 3 <= Math.min(selDay ? 24 : range, hrs.length); k += 3) {
         const g = hrs.slice(k, k + 3);
         bins.push({ ...g[0], pp: maxOf(g.map(x => x.pp)), mm: g.reduce((a, x) => a + (x.mm || 0), 0),
           code: maxOf(g.map(x => x.code)) ?? g[0].code, ws: mean(g.map(x => x.ws)), wg: maxOf(g.map(x => x.wg)) });
@@ -539,7 +543,10 @@
       if (bins.length) hrs = bins;
     }
     const seg = n => `<button type="button" data-step="${n}" class="seg${step === n ? " on" : ""}">${n} h</button>`;
-    html += `<div class="card"><h2 id="chartCard" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>${chartTitle}</span> <span class="segs">${seg(1)}${seg(3)}</span></h2><div class="hourly">${hourlySVG(hrs, step === 3, !selDay)}</div>
+    const rseg = n => `<button type="button" data-range="${n}" class="seg${range === n ? " on" : ""}">${n} h</button>`;
+    html += `<div class="card"><h2 id="chartCard" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>${chartTitle}</span></h2>
+      <div class="ctrl">${selDay ? "" : `<span>Zeitraum <span class="segs">${rseg(24)}${rseg(48)}</span></span>`}<span>Schritt <span class="segs">${seg(1)}${seg(3)}</span></span></div>
+      <div class="hourly">${hourlySVG(hrs, hrs.length <= 9, !selDay)}</div>
       <div class="legend">Balken = Niederschlag (${step === 3 ? "mm/3 h" : "mm/h"}), Prozent = Wahrscheinlichkeit · Pfeil = Windrichtung, Zahl = Wind km/h, B = Böen${d.spread ? " · helles Band = Temperatur-Spanne der Modelle" : ""}</div></div>`;
 
     // 7 days
@@ -589,6 +596,9 @@
     });
     const back = document.getElementById("dayBack");
     if (back) back.onclick = () => { selDay = null; render(...lastRender); };
+    document.querySelectorAll(".seg[data-range]").forEach(b => b.onclick = () => {
+      range = +b.dataset.range; store.set("wetter.range", range); render(...lastRender);
+    });
     document.querySelectorAll(".seg[data-step]").forEach(b => b.onclick = () => {
       step = +b.dataset.step; store.set("wetter.step", step); render(...lastRender);
     });
