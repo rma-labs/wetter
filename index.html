@@ -32,6 +32,9 @@
   .chip{background:var(--card);border:1px solid var(--line);color:var(--text);border-radius:999px;padding:6px 12px;
        font-size:.85rem;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
   .chip.active{border-color:var(--accent);color:var(--accent)}
+  .chip.editing{border-style:dashed;user-select:none;-webkit-user-select:none}
+  .chip .mv{color:var(--accent);padding:0 4px;font-size:.8rem}
+  .chip{-webkit-touch-callout:none}
   .chip .x{color:var(--muted);font-size:.8rem}
   .modelbox{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;margin-left:auto}
   select{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:6px 8px;font-size:.85rem}
@@ -258,19 +261,43 @@
   };
 
   // ---------- favourites ----------
+  // Favoriten: Tipp = Ort wählen, ✕ = entfernen. Umsortieren über „↕“ oder langes Drücken auf einen Favoriten.
+  let editFavs = false;
+  function saveFavs(){ store.set("wetter.favs", favs); renderFavs(); renderStar(); }
   function renderFavs(){
     const el = document.getElementById("favs"); el.innerHTML = "";
+    if (favs.length < 2) editFavs = false;
     favs.forEach((f, i) => {
       const b = document.createElement("button"); b.type = "button";
-      b.className = "chip" + (sameP(f, place) ? " active" : "");
-      b.innerHTML = esc(f.name) + ' <span class="x" title="Entfernen">✕</span>';
+      b.className = "chip" + (sameP(f, place) ? " active" : "") + (editFavs ? " editing" : "");
+      b.innerHTML = editFavs
+        ? `<span class="mv" data-d="-1" style="visibility:${i ? "visible" : "hidden"}">◀</span>${esc(f.name)}<span class="mv" data-d="1" style="visibility:${i < favs.length - 1 ? "visible" : "hidden"}">▶</span>`
+        : esc(f.name) + ' <span class="x" title="Entfernen">✕</span>';
+      let timer = null, longPressed = false;
+      b.addEventListener("pointerdown", () => { longPressed = false; if (!editFavs && favs.length > 1) timer = setTimeout(() => { longPressed = true; editFavs = true; renderFavs(); }, 550); });
+      ["pointerup", "pointerleave", "pointercancel"].forEach(t => b.addEventListener(t, () => clearTimeout(timer)));
+      b.addEventListener("contextmenu", e => e.preventDefault());
       b.onclick = e => {
-        if (e.target.classList.contains("x")) { favs.splice(i, 1); store.set("wetter.favs", favs); renderFavs(); renderStar(); return; }
+        if (longPressed) return;
+        const mv = e.target.closest(".mv");
+        if (editFavs) {
+          if (mv) { const j = i + +mv.dataset.d; if (j >= 0 && j < favs.length) { [favs[i], favs[j]] = [favs[j], favs[i]]; saveFavs(); } }
+          return;
+        }
+        if (e.target.classList.contains("x")) { favs.splice(i, 1); saveFavs(); return; }
         setPlace(f);
       };
       el.appendChild(b);
     });
+    if (favs.length > 1) {
+      const t = document.createElement("button"); t.type = "button";
+      t.className = "chip" + (editFavs ? " active" : "");
+      t.textContent = editFavs ? "✓ Fertig" : "↕"; t.title = editFavs ? "Fertig" : "Reihenfolge ändern";
+      t.onclick = () => { editFavs = !editFavs; renderFavs(); };
+      el.appendChild(t);
+    }
   }
+
   function toggleFav(){
     const i = favs.findIndex(f => sameP(f, place));
     if (i >= 0) favs.splice(i, 1); else favs.push(place);
