@@ -464,8 +464,18 @@
     const e = store.get(CACHE_KEY, {})[placeKey(place)];
     return e && Date.now() - e.at < CACHE_MAX_AGE ? e : null;
   }
+  // Nach einem Neuladen der Seite (F5) den Kurzzeit-Speicher aus dem gespeicherten letzten Stand füllen,
+  // damit auch dann innerhalb von 9 Min. nicht neu abgefragt wird
+  function seedMemo(){
+    const e = store.get(CACHE_KEY, {})[placeKey(place)];
+    if (!e || Date.now() - e.at >= MEMO_MS) return;
+    const [data, members, , mode] = e.args, k = placeKey(place) + "|";
+    (members || []).forEach(m => { if (!memo.has(k + m.id)) memo.set(k + m.id, { at: e.at, d: m.d }); });
+    if (mode === "best_match" && !memo.has(k + "best_match")) memo.set(k + "best_match", { at: e.at, d: data });
+  }
   async function load(){
     const my = ++loadSeq;
+    seedMemo();
     const out = document.getElementById("out");
     if (!out.querySelector(".card:not(.msg)")) out.innerHTML = '<div class="msg">Lade …</div>';
     try {
