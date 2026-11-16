@@ -435,7 +435,7 @@
   // „bis X“ nur zeigen, wenn ein Modell deutlich über dem Mittel liegt
   const gustHi = (v, mx) => ok(v) && ok(mx) && mx - v >= 15 && mx >= 40 ? mx : null;
   const CONF = [["b-good", "Prognose eher sicher"], ["b-mid", "Prognose mittel sicher"], ["b-bad", "Prognose unsicher"]];
-  const CONF_DOT = ["#8be0b4", "#f2d38a", "#f2a0a0"];
+  const CONF_DOT = ["#22c55e", "#facc15", "#ef4444"]; // satte Ampelfarben, da die Punkte klein sind
 
   let loadSeq = 0;
   let lastLoad = 0, offline = null; // offline = Zeitpunkt der gezeigten zwischengespeicherten Daten
