@@ -520,18 +520,32 @@
     const snowAtPlace = ok(slWet) && ok(elev) && slWet <= elev + 100;
 
     // Inversion: in ~1500 m (850 hPa) wärmer als am Ort → Kaltluftsee, Nebel/Hochnebel möglich.
-    // Nur für Orte unter 1000 m (darüber liegt 850 hPa zu nahe am Boden). Schwelle: ≥ 2° wärmer in den nächsten 12 h.
+    // Nur für Orte unter 1000 m (darüber liegt 850 hPa zu nahe am Boden). Schwelle: ≥ 2° wärmer, mind. 3 h in den nächsten 12 h.
+    // Im Konsens: Hinweis, sobald mind. 2 Modelle einzeln eine Inversion sehen (das Mittel würde sie sonst verwischen).
+    const detectInv = hh => {
+      const win = idx.slice(0, 13).map(i => ({ i, d: ok(hh.temperature_850hPa?.[i]) && ok(hh.temperature_2m?.[i]) ? hh.temperature_850hPa[i] - hh.temperature_2m[i] : null })).filter(x => ok(x.d));
+      const strong = win.filter(x => x.d >= INV_MIN);
+      if (strong.length < 3) return null;
+      const top = strong.reduce((a, b) => b.d > a.d ? b : a);
+      const rh = maxOf(strong.map(x => hh.relative_humidity_2m?.[x.i]));
+      return { i: top.i, d: top.d, tVal: hh.temperature_2m[top.i], tUp: hh.temperature_850hPa[top.i], fog: ok(rh) && rh >= 90 };
+    };
     let inv = null;
     if (!ok(elev) || elev < 1000) {
-      const win = idx.slice(0, 13).map(i => ({ i, d: ok(h.temperature_850hPa?.[i]) && ok(h.temperature_2m[i]) ? h.temperature_850hPa[i] - h.temperature_2m[i] : null })).filter(x => ok(x.d));
-      const strong = win.filter(x => x.d >= INV_MIN);
-      if (strong.length >= 3) {
-        const top = strong.reduce((a, b) => b.d > a.d ? b : a);
-        const rh = maxOf(strong.map(x => h.relative_humidity_2m?.[x.i]));
-        // Zeitpunkt der stärksten Inversion in Worten: „jetzt“, „gegen 22 Uhr“, „morgen gegen 4 Uhr“
-        const ti = h.time[top.i], hr = +ti.slice(11, 13);
-        const when = top.i === start ? "jetzt" : (ti.slice(0, 10) !== h.time[start].slice(0, 10) ? "morgen " : "") + `gegen ${hr} Uhr`;
-        inv = { d: top.d, tVal: h.temperature_2m[top.i], tUp: h.temperature_850hPa[top.i], fog: ok(rh) && rh >= 90, when };
+      if (mode === "consensus" && members && members.length > 1) {
+        const hits = members.map(m => ({ name: m.name, r: detectInv(m.d.hourly) })).filter(x => x.r);
+        const withData = members.filter(m => vals(idx.map(i => m.d.hourly.temperature_850hPa?.[i])).length).length; // nur Modelle mit Höhenwert zählen
+        if (hits.length >= 2) {
+          // Werte: Mittel der Modelle, die die Inversion sehen, zur Stunde der stärksten Inversion
+          const best = hits.reduce((a, b) => b.r.d > a.r.d ? b : a).r;
+          inv = { ...best, tVal: mean(hits.map(x => x.r.tVal)), tUp: mean(hits.map(x => x.r.tUp)), fog: hits.some(x => x.r.fog),
+                  i: best.i, who: hits.length === withData ? `alle ${withData} Modelle` : `${hits.map(x => x.name).join(", ")} – ${hits.length} von ${withData} Modellen` };
+        }
+      } else inv = detectInv(h);
+      if (inv) {
+        // Zeitpunkt in Worten: „jetzt“, „gegen 22 Uhr“, „morgen gegen 4 Uhr“
+        const ti = h.time[inv.i], hr = +ti.slice(11, 13);
+        inv.when = inv.i === start ? "jetzt" : (ti.slice(0, 10) !== h.time[start].slice(0, 10) ? "morgen " : "") + `gegen ${hr} Uhr`;
       }
     }
 
@@ -580,7 +594,7 @@
         <div><b>${meters(flNow)}</b><span>Nullgradgrenze</span></div>
         <div class="${snow24 >= 0.5 ? "hl" : ""}"><b>${fmt1(snow24)} cm</b><span>Neuschnee 24 h</span></div>
       </div>
-      ${inv ? `<div class="snowl" style="margin-top:10px">🌫 <b>Inversionslage:</b> ${inv.when} hier ${fmt(inv.tVal)}°, in ca. 1500 m ${fmt(inv.tUp)}°.
+      ${inv ? `<div class="snowl" style="margin-top:10px">🌫 <b>Inversionslage</b>${inv.who ? ` <span class="sub">(${esc(inv.who)})</span>` : ""}<b>:</b> ${inv.when} hier ${fmt(inv.tVal)}°, in ca. 1500 m ${fmt(inv.tUp)}°.
         Nebel oder Hochnebel ${inv.fog ? "wahrscheinlich" : "möglich"} – Temperatur und Sonne sind hier dann unsicherer, Einzelmodelle können abweichen.</div>` : ""}
       ${snowAtPlace ? `<div class="snowl" style="margin-top:10px">❄ Schneefallgrenze sinkt in den nächsten 24 h bis ca. ${meters(slWet)} – Schnee bzw. Schneeregen am Ort möglich.</div>` : ""}
     </div>`;
