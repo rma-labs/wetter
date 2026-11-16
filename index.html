@@ -533,13 +533,14 @@
     let inv = null;
     if (!ok(elev) || elev < 1000) {
       if (mode === "consensus" && members && members.length > 1) {
-        const hits = members.map(m => ({ name: m.name, r: detectInv(m.d.hourly) })).filter(x => x.r);
+        const hits = members.map(m => ({ name: m.name, hh: m.d.hourly, r: detectInv(m.d.hourly) })).filter(x => x.r);
         const withData = members.filter(m => vals(idx.map(i => m.d.hourly.temperature_850hPa?.[i])).length).length; // nur Modelle mit Höhenwert zählen
         if (hits.length >= 2) {
           // Werte: Mittel der Modelle, die die Inversion sehen, zur Stunde der stärksten Inversion
           const best = hits.reduce((a, b) => b.r.d > a.r.d ? b : a).r;
-          inv = { ...best, tVal: mean(hits.map(x => x.r.tVal)), tUp: mean(hits.map(x => x.r.tUp)), fog: hits.some(x => x.r.fog),
-                  i: best.i, who: hits.length === withData ? `alle ${withData} Modelle` : `${hits.map(x => x.name).join(", ")} – ${hits.length} von ${withData} Modellen` };
+          // alle Werte zur selben Stunde (best.i), nicht zur jeweils eigenen Spitzenstunde der Modelle
+          inv = { ...best, tVal: mean(hits.map(x => x.hh.temperature_2m?.[best.i])), tUp: mean(hits.map(x => x.hh.temperature_850hPa?.[best.i])), fog: hits.some(x => x.r.fog),
+                  i: best.i, who: hits.length === withData ? `laut allen ${withData} Modellen` : `laut ${hits.map(x => x.name).join(", ").replace(/, ([^,]*)$/, " und $1")} (${hits.length} von ${withData} Modellen)` };
         }
       } else inv = detectInv(h);
       if (inv) {
@@ -594,7 +595,7 @@
         <div><b>${meters(flNow)}</b><span>Nullgradgrenze</span></div>
         <div class="${snow24 >= 0.5 ? "hl" : ""}"><b>${fmt1(snow24)} cm</b><span>Neuschnee 24 h</span></div>
       </div>
-      ${inv ? `<div class="snowl" style="margin-top:10px">🌫 <b>Inversionslage</b>${inv.who ? ` <span class="sub">(${esc(inv.who)})</span>` : ""}<b>:</b> ${inv.when} hier ${fmt(inv.tVal)}°, in ca. 1500 m ${fmt(inv.tUp)}°.
+      ${inv ? `<div class="snowl" style="margin-top:10px">🌫 <b>Inversionslage</b>${inv.who ? ` ${esc(inv.who)}` : ""}: ${inv.when} hier ${fmt(inv.tVal)}°, in ca. 1500 m ${fmt(inv.tUp)}°.
         Nebel oder Hochnebel ${inv.fog ? "wahrscheinlich" : "möglich"} – Temperatur und Sonne sind hier dann unsicherer, Einzelmodelle können abweichen.</div>` : ""}
       ${snowAtPlace ? `<div class="snowl" style="margin-top:10px">❄ Schneefallgrenze sinkt in den nächsten 24 h bis ca. ${meters(slWet)} – Schnee bzw. Schneeregen am Ort möglich.</div>` : ""}
     </div>`;
