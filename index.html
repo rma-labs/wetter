@@ -143,6 +143,8 @@
   ];
   // Schneefallgrenze liegt typischerweise ca. 300 m unter der Nullgradgrenze
   const SNOW_OFFSET = 300;
+  // Inversions-Hinweis: Mindest-Temperaturüberschuss in ~1500 m gegenüber dem Ort (vorläufig, wird kalibriert)
+  const INV_MIN = 2;
 
   // ---------- storage (safe) ----------
   const store = {
@@ -331,7 +333,7 @@
 
   // ---------- data ----------
   const CUR = "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day,precipitation,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl";
-  const HOURLY = "temperature_2m,precipitation_probability,precipitation,snowfall,weather_code,is_day,freezing_level_height,wind_speed_10m,wind_gusts_10m,wind_direction_10m";
+  const HOURLY = "temperature_2m,precipitation_probability,precipitation,snowfall,weather_code,is_day,freezing_level_height,wind_speed_10m,wind_gusts_10m,wind_direction_10m,temperature_850hPa,relative_humidity_2m";
   const DAILY = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum,precipitation_probability_max,sunrise,sunset,sunshine_duration,uv_index_max";
 
   async function fetchModel(model){
@@ -517,6 +519,19 @@
     const slWet = minOf(wetIdx.map(i => snowLine(h.freezing_level_height?.[i])));
     const snowAtPlace = ok(slWet) && ok(elev) && slWet <= elev + 100;
 
+    // Inversion: in ~1500 m (850 hPa) wärmer als am Ort → Kaltluftsee, Nebel/Hochnebel möglich.
+    // Nur für Orte unter 1000 m (darüber liegt 850 hPa zu nahe am Boden). Schwelle: ≥ 2° wärmer in den nächsten 12 h.
+    let inv = null;
+    if (!ok(elev) || elev < 1000) {
+      const win = idx.slice(0, 13).map(i => ({ i, d: ok(h.temperature_850hPa?.[i]) && ok(h.temperature_2m[i]) ? h.temperature_850hPa[i] - h.temperature_2m[i] : null })).filter(x => ok(x.d));
+      const strong = win.filter(x => x.d >= INV_MIN);
+      if (strong.length >= 3) {
+        const top = strong.reduce((a, b) => b.d > a.d ? b : a);
+        const rh = maxOf(strong.map(x => h.relative_humidity_2m?.[x.i]));
+        inv = { d: top.d, tVal: h.temperature_2m[top.i], tUp: h.temperature_850hPa[top.i], fog: ok(rh) && rh >= 90 };
+      }
+    }
+
     // consensus badge
     const cons = mode === "consensus" && d.spread ? d.spread : null; // Spitzenwerte nur im Konsens-Modus
     const curHi = cons ? gustHi(c.wind_gusts_10m, cons.curGustMax) : null;
@@ -562,6 +577,8 @@
         <div><b>${meters(flNow)}</b><span>Nullgradgrenze</span></div>
         <div class="${snow24 >= 0.5 ? "hl" : ""}"><b>${fmt1(snow24)} cm</b><span>Neuschnee 24 h</span></div>
       </div>
+      ${inv ? `<div class="snowl" style="margin-top:10px">🌫 <b>Inversionslage:</b> in ca. 1500 m bis ${fmt(inv.d)}° wärmer als hier (${fmt(inv.tVal)}° / ${fmt(inv.tUp)}°).
+        Nebel oder Hochnebel ${inv.fog ? "wahrscheinlich" : "möglich"} – Temperatur und Sonne im Tal sind dann unsicherer, Einzelmodelle können abweichen.</div>` : ""}
       ${snowAtPlace ? `<div class="snowl" style="margin-top:10px">❄ Schneefallgrenze sinkt in den nächsten 24 h bis ca. ${meters(slWet)} – Schnee bzw. Schneeregen am Ort möglich.</div>` : ""}
     </div>`;
 
