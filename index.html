@@ -528,7 +528,10 @@
       if (strong.length >= 3) {
         const top = strong.reduce((a, b) => b.d > a.d ? b : a);
         const rh = maxOf(strong.map(x => h.relative_humidity_2m?.[x.i]));
-        inv = { d: top.d, tVal: h.temperature_2m[top.i], tUp: h.temperature_850hPa[top.i], fog: ok(rh) && rh >= 90 };
+        // Zeitpunkt der stärksten Inversion in Worten: „jetzt“, „gegen 22 Uhr“, „morgen gegen 4 Uhr“
+        const ti = h.time[top.i], hr = +ti.slice(11, 13);
+        const when = top.i === start ? "jetzt" : (ti.slice(0, 10) !== h.time[start].slice(0, 10) ? "morgen " : "") + `gegen ${hr} Uhr`;
+        inv = { d: top.d, tVal: h.temperature_2m[top.i], tUp: h.temperature_850hPa[top.i], fog: ok(rh) && rh >= 90, when };
       }
     }
 
@@ -577,7 +580,7 @@
         <div><b>${meters(flNow)}</b><span>Nullgradgrenze</span></div>
         <div class="${snow24 >= 0.5 ? "hl" : ""}"><b>${fmt1(snow24)} cm</b><span>Neuschnee 24 h</span></div>
       </div>
-      ${inv ? `<div class="snowl" style="margin-top:10px">🌫 <b>Inversionslage:</b> in ca. 1500 m bis ${fmt(inv.d)}° wärmer als hier (${fmt(inv.tVal)}° / ${fmt(inv.tUp)}°).
+      ${inv ? `<div class="snowl" style="margin-top:10px">🌫 <b>Inversionslage:</b> ${inv.when} hier ${fmt(inv.tVal)}°, in ca. 1500 m ${fmt(inv.tUp)}°.
         Nebel oder Hochnebel ${inv.fog ? "wahrscheinlich" : "möglich"} – Temperatur und Sonne sind hier dann unsicherer, Einzelmodelle können abweichen.</div>` : ""}
       ${snowAtPlace ? `<div class="snowl" style="margin-top:10px">❄ Schneefallgrenze sinkt in den nächsten 24 h bis ca. ${meters(slWet)} – Schnee bzw. Schneeregen am Ort möglich.</div>` : ""}
     </div>`;
