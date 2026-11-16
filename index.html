@@ -578,7 +578,7 @@
         <div class="${snow24 >= 0.5 ? "hl" : ""}"><b>${fmt1(snow24)} cm</b><span>Neuschnee 24 h</span></div>
       </div>
       ${inv ? `<div class="snowl" style="margin-top:10px">🌫 <b>Inversionslage:</b> in ca. 1500 m bis ${fmt(inv.d)}° wärmer als hier (${fmt(inv.tVal)}° / ${fmt(inv.tUp)}°).
-        Nebel oder Hochnebel ${inv.fog ? "wahrscheinlich" : "möglich"} – Temperatur und Sonne im Tal sind dann unsicherer, Einzelmodelle können abweichen.</div>` : ""}
+        Nebel oder Hochnebel ${inv.fog ? "wahrscheinlich" : "möglich"} – Temperatur und Sonne sind hier dann unsicherer, Einzelmodelle können abweichen.</div>` : ""}
       ${snowAtPlace ? `<div class="snowl" style="margin-top:10px">❄ Schneefallgrenze sinkt in den nächsten 24 h bis ca. ${meters(slWet)} – Schnee bzw. Schneeregen am Ort möglich.</div>` : ""}
     </div>`;
 
